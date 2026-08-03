@@ -78,21 +78,29 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 app.use(errorHandler)
 
 server.listen(Number(PORT), "0.0.0.0", async () => {
-  console.log(`Server is running on port http://0.0.0.0:${PORT}`)
+  console.log(`Server is running on port http://0.0.0.0:${PORT}`);
 
-  // BullMQ workers start consuming as soon as their modules are imported;
-  // startWorkers() is just the explicit, visible boot signal for that.
-  startWorkers();
-  await registerRepeatableJobs();
-})
+  try {
+    startWorkers();
+    await registerRepeatableJobs();
+  } catch (err) {
+    console.error("[BullMQ] Initialization error:", err);
+  }
+});
 
-redisClient.connect()
+redisClient.connect().catch((err) => {
+  console.error("[Redis] Connection error:", err);
+});
 
 // database config
-connectDb()
+connectDb();
 
 // cloudinary config
-configCloud();
+try {
+  configCloud();
+} catch (err) {
+  console.error("[Cloudinary] Config error:", err);
+}
 
 /**
  * Graceful shutdown: stop accepting new work and let in-flight BullMQ jobs

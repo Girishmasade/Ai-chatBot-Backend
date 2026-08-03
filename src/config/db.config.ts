@@ -3,10 +3,13 @@ import { MONGO_URI } from "../env/env.import.js"
 
 export const connectDb = async () => {
     try {
-        const connection = await mongoose.connect(MONGO_URI)
-        console.log(`Database connected: ${connection.connection.host}`)
+        if (!MONGO_URI) {
+            console.error("[Database] Error: MONGO_URI environment variable is missing!");
+            return;
+        }
+        const connection = await mongoose.connect(MONGO_URI);
+        console.log(`[Database] Connected: ${connection.connection.host}`);
     } catch (error) {
-        console.log(error)
-        process.exit(1)
+        console.error("[Database] Connection error:", error);
     }
 }
