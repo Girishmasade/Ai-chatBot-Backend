@@ -77,8 +77,8 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 // be the LAST `app.use()` call.
 app.use(errorHandler)
 
-server.listen(PORT, async () => {
-  console.log(`Server is running on port http://localhost:${PORT}`)
+server.listen(Number(PORT), "0.0.0.0", async () => {
+  console.log(`Server is running on port http://0.0.0.0:${PORT}`)
 
   // BullMQ workers start consuming as soon as their modules are imported;
   // startWorkers() is just the explicit, visible boot signal for that.
