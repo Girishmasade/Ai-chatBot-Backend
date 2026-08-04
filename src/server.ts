@@ -1,4 +1,4 @@
-import { app, server } from "./socket/socket.js";
+give me the updateded file of this server.ts import { app, server } from "./socket/socket.js";
 import { PORT } from "./env/env.import.js";
 import redisClient from "./config/redis.config.js";
 import { errorHandler } from "./middlewares/globslError.middleware.js";
@@ -12,18 +12,11 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { allowedCorsType } from "./config/cors.config.js";
 import { startWorkers, shutdownWorkers } from "./redis/worker/index.js";
-import {
-  registerRepeatableJobs,
-  closeAllQueues,
-} from "./redis/scheduler/index.js";
+import { registerRepeatableJobs, closeAllQueues } from "./redis/scheduler/index.js";
 
-// -----------------------------------------------------------------------------
-// Middleware
-// -----------------------------------------------------------------------------
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+app.use(express.json()) // for parsing application/json
+app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
+app.use(cookieParser()); // for parsing cookies (refresh token)
 
 const corsOptions = {
   origin: (origin: any, callback: any) => {
@@ -40,6 +33,11 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// FIX: session() was previously registered twice — once here with the real
+// secret/cookie flags, and a second time further down with a hardcoded
+// secret and no cookie options. Express applies middleware in registration
+// order, so the second call was silently overwriting the first's
+// `secure`/`sameSite`/`httpOnly` config on every request. Kept this one only.
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "your-secret-key",
@@ -53,110 +51,76 @@ app.use(
   })
 );
 
-app.use(passport.initialize());
+app.use(passport.initialize()); // initialize passport
+// app.use(passport.session()); // initialize session
 
-app.use("/api/v1", RouterFile);
+app.use("/api/v1", RouterFile)
 
-app.get("/", (_, res) => {
-  res.send("Hello World!");
-});
+app.get("/", (req, res) => {
+    res.send("Hello World!")
+})
 
-app.get("/.well-known/appspecific/com.chrome.devtools.json", (_, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.status(200).json({
-    workspace: {
-      root: "/",
-    },
-  });
-});
-
-// Error handler MUST be last
-app.use(errorHandler);
-
-// -----------------------------------------------------------------------------
-// Bootstrap
-// -----------------------------------------------------------------------------
-
-const SERVER_PORT = Number(process.env.PORT) || Number(PORT) || 5000;
-
-async function bootstrap() {
-  try {
-    console.log("====================================");
-    console.log("NODE_ENV:", process.env.NODE_ENV);
-    console.log("PORT:", process.env.PORT);
-    console.log("SERVER_PORT:", SERVER_PORT);
-    console.log("====================================");
-
-    // Start HTTP server first
-    server.listen(SERVER_PORT, "0.0.0.0", () => {
-      console.log(
-        `🚀 Server running at http://0.0.0.0:${SERVER_PORT}`
-      );
+app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.status(200).json({
+      "workspace": {
+        "root": "/"
+      }
     });
+})
 
-    // Redis
-    try {
-      await redisClient.connect();
-      console.log("✅ Redis connected");
-    } catch (err) {
-      console.error("❌ Redis connection failed:", err);
-    }
+// FIX: errorHandler is Express error-handling middleware (arity 4:
+// (err, req, res, next)). Express only routes an error into a 4-arg
+// middleware that comes AFTER the route where it was thrown/passed to
+// next(err). It was previously registered before `app.use("/api/v1", ...)`,
+// so it could never actually catch any error your routes produced — it must
+// be the LAST `app.use()` call.
+app.use(errorHandler)
 
-    // MongoDB
-    try {
-      await connectDb();
-      console.log("✅ MongoDB connected");
-    } catch (err) {
-      console.error("❌ MongoDB connection failed:", err);
-    }
+server.listen(Number(PORT), async () => {
+  console.log(`Server is running on port ${PORT}`);
 
-    // Cloudinary
-    try {
-      configCloud();
-      console.log("✅ Cloudinary configured");
-    } catch (err) {
-      console.error("❌ Cloudinary config failed:", err);
-    }
-
-    // BullMQ
-    try {
-      startWorkers();
-      await registerRepeatableJobs();
-      console.log("✅ BullMQ initialized");
-    } catch (err) {
-      console.error("❌ BullMQ initialization failed:", err);
-    }
+  try {
+    startWorkers();
+    await registerRepeatableJobs();
   } catch (err) {
-    console.error("❌ Bootstrap failed:", err);
-    process.exit(1);
+    console.error("[BullMQ] Initialization error:", err);
   }
+});
+
+redisClient.connect().catch((err) => {
+  console.error("[Redis] Connection error:", err);
+});
+
+// database config
+connectDb();
+
+// cloudinary config
+try {
+  configCloud();
+} catch (err) {
+  console.error("[Cloudinary] Config error:", err);
 }
 
-bootstrap();
-
-// -----------------------------------------------------------------------------
-// Graceful Shutdown
-// -----------------------------------------------------------------------------
-
+/**
+ * Graceful shutdown: stop accepting new work and let in-flight BullMQ jobs
+ * finish (or return to the queue) instead of being killed mid-run, then
+ * close queue connections and the HTTP server.
+ */
 async function gracefulShutdown(signal: string): Promise<void> {
-  console.log(`[server] ${signal} received. Shutting down...`);
-
+  console.log(`[server] ${signal} received — shutting down gracefully`);
   try {
     await shutdownWorkers();
     await closeAllQueues();
-
-    if (redisClient.isOpen) {
-      await redisClient.quit();
-    }
   } catch (err) {
-    console.error("[Shutdown Error]:", err);
+    console.error("[server] Error during BullMQ shutdown:", err);
+  } finally {
+    server.close(() => {
+      console.log("[server] HTTP server closed");
+      process.exit(0);
+    });
   }
-
-  server.close(() => {
-    console.log("✅ HTTP server closed");
-    process.exit(0);
-  });
 }
 
-process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
