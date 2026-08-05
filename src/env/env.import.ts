@@ -7,7 +7,7 @@ const node_env = process.env.NODE_ENV as String
 
 // port
 
-export const PORT = process.env.PORT || (5000 as unknown as number);
+export const PORT = Number(process.env.PORT ?? 5500)
 
 // Database
 
