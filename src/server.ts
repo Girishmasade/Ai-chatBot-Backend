@@ -77,8 +77,8 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 // be the LAST `app.use()` call.
 app.use(errorHandler)
 
-server.listen(Number(PORT), "0.0.0.0", async () => {
-  console.log(`Server is running on port http://0.0.0.0:${PORT}`);
+app.listen(PORT, "0.0.0.0", async() => {
+  console.log(`✅ Server listening on ${PORT}`);
 
   try {
     startWorkers();
