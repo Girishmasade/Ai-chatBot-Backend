@@ -107,7 +107,7 @@ export const getSubscriptionForUser = AsyncHandler(async (req, res, next) => {
 export const updateSubscriptionForUser = AsyncHandler(
   async (req, res, next) => {
     try {
-      const subId = req.params;
+      const subId = req.params.subId || (req.params as any).id || req.body.id || req.body._id;
 
       if (!subId) {
         return errorHandler(res, 400, false, "subId not found", {});

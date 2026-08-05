@@ -25,3 +25,15 @@ export const promptPreviewBodySchema = z.object({
 });
 
 export type PromptPreviewBodyDto = z.infer<typeof promptPreviewBodySchema>;
+
+export const antiHallucinationPromptSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  category: z.enum(['image', 'video', 'business', 'asset', 'general']).optional(),
+  aspectRatio: z.string().optional(),
+  style: z.string().optional(),
+  quality: z.string().optional(),
+  outputFormat: z.string().optional(),
+  strictMode: z.boolean().optional().default(true),
+});
+
+export type AntiHallucinationPromptDto = z.infer<typeof antiHallucinationPromptSchema>;

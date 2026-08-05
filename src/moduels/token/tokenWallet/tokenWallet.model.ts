@@ -11,7 +11,7 @@ const TokenWalletSchema = new Schema<ITokenWalletDocument>(
     balance: {
       type: Number,
       required: true,
-      default: 0,
+      default: 200,
       min: [0, "Wallet balance cannot be negative"],
     },
 

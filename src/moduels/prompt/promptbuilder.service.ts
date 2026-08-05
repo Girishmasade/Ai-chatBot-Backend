@@ -1,5 +1,7 @@
 import { RAG_CONFIG } from '@/config/rag.config.js';
-import type{ BuildPromptInput, BuiltPrompt } from '@/moduels/prompt/promptbuilder.types.js';
+import type { BuildPromptInput, BuiltPrompt } from '@/moduels/prompt/promptbuilder.types.js';
+
+export { buildAntiHallucinationPrompt, detectPromptCategory, mapAIServiceToCategory } from './promptAntiHallucination.js';
 
 function buildContextBlock(chunks: BuildPromptInput['retrievedChunks']): { text: string; usedCount: number; usedChars: number } {
   const { maxContextChars } = RAG_CONFIG.promptBuilder;
@@ -11,7 +13,7 @@ function buildContextBlock(chunks: BuildPromptInput['retrievedChunks']): { text:
     const chunk = chunks[i];
     const entry = `[Source ${i + 1}]\n${chunk.content}`;
     if (usedChars + entry.length > maxContextChars && included.length > 0) {
-      break; // budget exhausted — but always include at least one chunk even if it alone exceeds budget, since some context beats none
+      break;
     }
     included.push(entry);
     usedChars += entry.length;
@@ -44,10 +46,6 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
     { role: 'system', content: systemMessageParts.join('\n\n') },
   ];
 
-  // Keep only the most recent N turns — older history is dropped rather
-  // than summarized for now (summarization is a Future Feature per your
-  // roadmap: "Conversation memory" is explicitly out of scope until RAG
-  // itself is done).
   const recentHistory = conversationHistory.slice(-maxHistoryMessages);
   for (const turn of recentHistory) {
     messages.push({ role: turn.role, content: turn.content });

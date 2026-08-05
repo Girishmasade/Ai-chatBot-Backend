@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-export interface IAIAsset extends Document {
+export interface IAIAsset extends Omit<Document, "model"> {
   user: Types.ObjectId;
   type: "image" | "video" | "text";
   title: string;

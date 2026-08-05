@@ -4,6 +4,7 @@ import { successHandler } from "@/utils/successHandler.util.js";
 import { errorHandler } from "@/utils/errorHandler.util.js";
 import { AuthModel } from "../auth/auth.models.js";
 import { UserSubscriptionModel } from "../subscription/userSubscription.model.js";
+import { UserSubscriptionStatus } from "../../shared/shared.types.enum.js";
 import TokenWalletModel from "../token/tokenWallet/tokenWallet.model.js";
 import { SystemModelModel } from "./systemModel.model.js";
 import { AuditLogModel } from "./auditLog.model.js";
@@ -15,60 +16,25 @@ import type { AuthUser } from "../auth/auth.payload.js";
 import redisClient from "@/config/redis.config.js";
 import { uploadFile } from "@/utils/cloudinary.util.js";
 
-// Default seed system models if DB is empty
-const defaultSystemModels = [
-  {
-    name: "Gemini 1.5 Flash",
-    version: "gemini-1.5-flash",
-    type: "text",
-    status: "active",
-    latency: "230ms",
-    description: "High-speed multimodal intelligence optimized for quick, cost-efficient chat and reasoning tasks.",
-    provider: "Google DeepMind",
-    cost: "1 cr / query",
-    tier: "Core Suite",
-  },
-  {
-    name: "Gemini 1.5 Pro",
-    version: "gemini-1.5-pro",
-    type: "text",
-    status: "active",
-    latency: "680ms",
-    description: "Maximum capability model for highly complex reasoning, advanced coding, and long-context analysis.",
-    provider: "Google DeepMind",
-    cost: "2 cr / query",
-    tier: "Pro Suite",
-  },
-  {
-    name: "Google Veo 2",
-    version: "veo-2.0-generate",
-    type: "video",
-    status: "active",
-    latency: "2.4s",
-    description: "State-of-the-art video generation engine creating high-fidelity, cinema-grade motion loops.",
-    provider: "Google DeepMind (Veo)",
-    cost: "5 cr / video",
-    tier: "Motion Elite",
-  },
-];
+
 
 // admin dashboard stats
 export const adminDashboard = AsyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const totalUsers = await AuthModel.countDocuments();
-  const activeSubscriptions = await UserSubscriptionModel.countDocuments({ status: "active" });
+  const activeSubscriptions = await UserSubscriptionModel.countDocuments({ status: UserSubscriptionStatus.ACTIVE });
   const activeModels = await SystemModelModel.countDocuments({ status: "active" });
   const totalModels = await SystemModelModel.countDocuments();
 
   // Compute Revenue (Est.) by summing price of active subscriptions
   const revAgg = await UserSubscriptionModel.aggregate([
-    { $match: { status: "active" } },
+    { $match: { status: UserSubscriptionStatus.ACTIVE } },
     { $group: { _id: null, totalRevenue: { $sum: "$price" } } }
   ]);
   const revenue = revAgg.length > 0 ? revAgg[0].totalRevenue : 0;
 
   // Compute User Tiers (assuming subscription planName or fetching all active)
-  const paidUsersCount = await UserSubscriptionModel.distinct("user", { status: "active", planName: { $ne: "Enterprise" } });
-  const enterpriseUsersCount = await UserSubscriptionModel.distinct("user", { status: "active", planName: "Enterprise" });
+  const paidUsersCount = await UserSubscriptionModel.distinct("user", { status: UserSubscriptionStatus.ACTIVE, planName: { $ne: "Enterprise" } });
+  const enterpriseUsersCount = await UserSubscriptionModel.distinct("user", { status: UserSubscriptionStatus.ACTIVE, planName: "Enterprise" });
   const paidUsers = paidUsersCount.length;
   const enterpriseUsers = enterpriseUsersCount.length;
   const freeUsers = Math.max(0, totalUsers - paidUsers - enterpriseUsers);
@@ -133,7 +99,7 @@ export const getUsers = AsyncHandler(async (req: Request, res: Response, next: N
 
   const [wallets, subscriptions] = await Promise.all([
     TokenWalletModel.find({ userId: { $in: userIds } }).lean(),
-    UserSubscriptionModel.find({ user: { $in: userIds }, status: "active" }).lean(),
+    UserSubscriptionModel.find({ user: { $in: userIds }, status: UserSubscriptionStatus.ACTIVE }).lean(),
   ]);
 
   const walletMap = new Map(wallets.map((w: any) => [w.userId?.toString() || "", w.balance]));
@@ -229,12 +195,7 @@ export const getModels = AsyncHandler(async (req: Request, res: Response, next: 
     console.error("Redis read error:", err);
   }
 
-  let models = await SystemModelModel.find().lean();
-
-  if (!models || models.length === 0) {
-    await SystemModelModel.insertMany(defaultSystemModels);
-    models = await SystemModelModel.find().lean();
-  }
+  const models = await SystemModelModel.find().lean();
 
   const mappedModels = models.map((m) => ({
     id: m._id.toString(),
