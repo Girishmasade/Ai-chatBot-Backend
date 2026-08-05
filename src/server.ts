@@ -77,9 +77,10 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 // be the LAST `app.use()` call.
 app.use(errorHandler)
 
-app.listen(PORT, "0.0.0.0", async() => {
-  console.log(`✅ Server listening on ${PORT}`);
-
+// ✅ CORRECT - uses the Socket.io-wrapped server
+server.listen(PORT, "0.0.0.0", async() => {
+  console.log(`✅ Server listening on 0.0.0.0:${PORT}`);
+  
   try {
     startWorkers();
     await registerRepeatableJobs();
