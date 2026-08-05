@@ -2,21 +2,12 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-<<<<<<< HEAD
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "esbuild src/server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.js",
     "start": "node dist/server.js"
-=======
-  "main": "server.js",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node src/server.js"
->>>>>>> refs/remotes/origin/main
   },
   "keywords": [],
   "author": "",
