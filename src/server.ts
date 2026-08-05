@@ -1,5 +1,5 @@
 import { app, server } from "./socket/socket.js";
-import { PORT } from "./env/env.import.js";
+// import { PORT } from "./env/env.import.js";
 import redisClient from "./config/redis.config.js";
 import { errorHandler } from "./middlewares/globslError.middleware.js";
 import { connectDb } from "./config/db.config.js";
@@ -13,6 +13,13 @@ import cookieParser from "cookie-parser";
 import { allowedCorsType } from "./config/cors.config.js";
 import { startWorkers, shutdownWorkers } from "./redis/worker/index.js";
 import { registerRepeatableJobs, closeAllQueues } from "./redis/scheduler/index.js";
+import dotenv from "dotenv";
+dotenv.config();
+
+// ports
+const PORT = Number(process.env.PORT) || 5500;
+
+// middlewares
 
 app.use(express.json()) // for parsing application/json
 app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
