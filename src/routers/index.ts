@@ -18,6 +18,7 @@ import ModerationRouter from "@/moduels/moderation/moderation.route.js";
 import PromptBuilderRoute from "@/moduels/prompt/promptbuilder.route.js";
 import { paymentRouter } from "@/moduels/payment/payment.route.js";
 import { menuRouter } from "@/moduels/admin/menu.route.js";
+import { chatHistoryRouter } from "@/moduels/chat/chatHistory.route.js";
 
 // NOTE: notification.route.ts is intentionally NOT mounted — its controller
 // (notification.controller.ts) is all empty stub functions and the route
@@ -41,6 +42,7 @@ RouterFile.use("/admin/token-transaction", adminTransactionRouter)
 RouterFile.use("/token-wallet", userWalletRouter)
 RouterFile.use("/admin/token-wallet", adminWalletRouter)
 RouterFile.use("/ai-request", aiRequestRouter)
+RouterFile.use("/chat", chatHistoryRouter)
 RouterFile.use("/provider-api-keys", providerApiKeyRoute)
 RouterFile.use("/documents", DocumentRouter)
 RouterFile.use("/retrieval", RetrievalRoute)

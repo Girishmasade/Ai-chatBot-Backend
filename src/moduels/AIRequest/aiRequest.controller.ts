@@ -18,8 +18,10 @@ import {
   AI_REQUEST_DEFAULT_SORT_ORDER,
 } from "./aiRequest.constant.js";
 import { ServiceConfigModel } from "../service-config/service-config.model.js";
+import { AIService } from "../service-config/service-config.types.js";
 import { SystemModelModel } from "../admin/systemModel.model.js";
 import { UserSubscriptionModel } from "../subscription/userSubscription.model.js";
+import { UserSubscriptionStatus } from "@/shared/shared.types.enum.js";
 import TokenWalletModel from "../token/tokenWallet/tokenWallet.model.js";
 import { TokenTransaction } from "../token/tokenTransaction/tokenTransaction.model.js";
 import {
@@ -27,6 +29,12 @@ import {
   TransactionSource,
   TransactionStatus,
 } from "../token/tokenTransaction/tokenTransaction.types.js";
+import {
+  buildAntiHallucinationPrompt,
+  mapAIServiceToCategory,
+} from "../prompt/promptAntiHallucination.js";
+import { uploadFile, uploadMediaToCloudinary } from "@/utils/cloudinary.util.js";
+import { AIAssetModel } from "../admin/asset.model.js";
 
 // ─── Redis cache instance ─────────────────────────────────────────────────────
 
@@ -34,6 +42,32 @@ const aiRequestCache = createCacheHelper({
   namespace: AI_REQUEST_CACHE_NAMESPACE,
   ttl:       AI_REQUEST_CACHE_TTL,
 });
+
+function resolveServiceTokenRate(service: string, activeModelCost?: string): number {
+  if (activeModelCost) {
+    const parsedCost = parseFloat(activeModelCost);
+    if (!isNaN(parsedCost) && parsedCost > 0) {
+      return parsedCost;
+    }
+  }
+
+  switch (service) {
+    case "ai_chat":
+      return 1;
+    case "prompt_gen":
+      return 1;
+    case "business_ideas":
+      return 2;
+    case "image_gen":
+      return 5;
+    case "asset_gen":
+      return 5;
+    case "video_gen":
+      return 10;
+    default:
+      return 1;
+  }
+}
 
 // USER — Execute AI Request
 // POST /api/v1/ai/execute
@@ -65,41 +99,70 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
     // Map AIRequest service to SystemModel type
     const serviceToModelType: Record<string, string> = {
       ai_chat: "text",
-      business_ideas: "text",
+      business_ideas: "business",
       prompt_gen: "text",
       image_gen: "image",
-      asset_gen: "image",
+      asset_gen: "assets",
       video_gen: "video",
     };
     const modelType = serviceToModelType[service] || "text";
 
-    // Try finding an active system model for this service first
-    const activeSystemModels = await SystemModelModel.find({ 
-      type: modelType, 
-      status: "active" 
-    }).lean();
+    let activeSystemModels: any[] = [];
+
+    // If a specific model was passed in the request body, try finding it first
+    if (model) {
+      activeSystemModels = await SystemModelModel.find({
+        $or: [
+          { version: model },
+          { name: model },
+          { _id: mongoose.Types.ObjectId.isValid(model) ? model : null },
+        ],
+        status: "active",
+      }).lean();
+    }
+
+    // If no specific model requested or found, query active models for this service's category
+    if (!activeSystemModels.length) {
+      activeSystemModels = await SystemModelModel.find({ 
+        type: modelType, 
+        status: "active" 
+      }).lean();
+
+      // Gracefully fall back to base text/image types if business/assets aren't individually provisioned
+      if (!activeSystemModels.length) {
+        if (modelType === "business") {
+          activeSystemModels = await SystemModelModel.find({ type: "text", status: "active" }).lean();
+        } else if (modelType === "assets" || modelType === "video") {
+          activeSystemModels = await SystemModelModel.find({ type: "image", status: "active" }).lean();
+        }
+      }
+    }
 
     let enabledProviders: any[] = [];
     let tokensPerUnit = 1;
 
     if (activeSystemModels && activeSystemModels.length > 0) {
-      // Map SystemModels to the expected Provider format
-      enabledProviders = activeSystemModels.map((sm, index) => ({
-        provider: sm.provider.toLowerCase(),
-        model: sm.version,
-        priority: index + 1,
-        enabled: true,
-        maxTokens: undefined,
-        temperature: undefined
-      }));
+      // Map SystemModels to expected Provider format dynamically
+      enabledProviders = activeSystemModels.map((sm, index) => {
+        let pName = (sm.provider || "").toLowerCase();
+        if (pName.includes("google") || pName.includes("gemini")) pName = "gemini";
+        else if (pName.includes("openai")) pName = "openai";
+        else if (pName.includes("huggingface")) pName = "huggingface";
+        else if (pName.includes("anthropic") || pName.includes("claude")) pName = "anthropic";
+        else if (pName.includes("grok")) pName = "grok";
+        else if (pName.includes("deepseek")) pName = "deepseek";
+
+        return {
+          provider: pName,
+          model: sm.version,
+          priority: index + 1,
+          enabled: true,
+          maxTokens: undefined,
+          temperature: undefined
+        };
+      });
       
-      // Parse cost if available (e.g., "2 cr / query" -> 2)
-      if (activeSystemModels[0].cost) {
-        const parsedCost = parseFloat(activeSystemModels[0].cost);
-        if (!isNaN(parsedCost)) {
-          tokensPerUnit = parsedCost;
-        }
-      }
+      tokensPerUnit = resolveServiceTokenRate(service, activeSystemModels[0]?.cost);
     } else {
       // Fallback to ServiceConfigModel if no SystemModel found
       const serviceConfig = await ServiceConfigModel.findOne({
@@ -119,13 +182,13 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
         .filter((p: any) => p.enabled)
         .sort((a: any, b: any) => a.priority - b.priority);
         
-      tokensPerUnit = (serviceConfig as any).tokensPerUnit ?? 1;
+      tokensPerUnit = (serviceConfig as any).tokensPerUnit ?? resolveServiceTokenRate(service);
     }
 
     if (!enabledProviders.length) {
       return errorHandler(
         res, 503, false,
-        "No AI providers are currently available for this service. Please try again later.",
+        "No AI providers or active system models are currently available for this service. Please check admin model configuration.",
         {},
       );
     }
@@ -134,7 +197,7 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
 
     const subscription = await UserSubscriptionModel.findOne({
       user:   userId,
-      status: "active",
+      status: UserSubscriptionStatus.ACTIVE,
     }).lean();
 
     if (!subscription) {
@@ -156,10 +219,10 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
     // ── Step 3: Check Token Balance ───────────────────────────────────────────
     // TokenWalletModel schema uses `userId` field, not `user`.
 
-    const wallet = await TokenWalletModel.findOne({ userId });
+    let wallet = await TokenWalletModel.findOne({ userId });
 
     if (!wallet) {
-      return errorHandler(res, 404, false, "Token wallet not found.", {});
+      wallet = await TokenWalletModel.create({ userId, balance: 200, totalBonus: 200 });
     }
 
     const estimatedTokens = estimateTotalTokens(prompt, systemPrompt, conversationHistory);
@@ -197,49 +260,73 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
     console.log(`[AIRequest] Created PENDING record: ${aiRequest._id}`);
 
     // ── Step 6: Reserve Tokens (Pre-deduction) ────────────────────────────────
-    // Open ONE session and keep it open through Steps 6 → 9 → 10.
-    // endSession() is called exactly once: either on an early-exit error path
-    // (inside the catch below, or end of Step 9) or after Step 10 succeeds.
-
-    const dbSession = await mongoose.startSession();
+    const dbSession = await mongoose.startSession().catch(() => null);
     let balanceBeforeReserve = 0;
 
     try {
-      await dbSession.withTransaction(async () => {
-        const walletLocked = await TokenWalletModel.findOne({ userId }).session(dbSession);
+      let reservedSuccess = false;
+      if (dbSession) {
+        try {
+          await dbSession.withTransaction(async () => {
+            const walletLocked = await TokenWalletModel.findOne({ userId }).session(dbSession);
 
-        if (!walletLocked) throw new Error("WALLET_NOT_FOUND");
-        if (walletLocked.balance < estimatedCost) throw new Error("INSUFFICIENT_TOKENS");
+            if (!walletLocked) throw new Error("WALLET_NOT_FOUND");
+            if (walletLocked.balance < estimatedCost) throw new Error("INSUFFICIENT_TOKENS");
 
-        balanceBeforeReserve  = walletLocked.balance;
-        walletLocked.balance -= estimatedCost;
-        await walletLocked.save({ session: dbSession });
+            balanceBeforeReserve  = walletLocked.balance;
+            walletLocked.balance -= estimatedCost;
+            await walletLocked.save({ session: dbSession });
 
-        // FIX: TokenTransactionSchema fields are: userId, type, source, status,
-        //      amount, balanceBefore, balanceAfter, aiRequestId, metadata.
-        //      There is NO `bucket` field and NO `user` field — use `userId`.
-        //      `source` must be a TransactionSource enum value, not a TOKEN_SOURCE string.
-        await TokenTransaction.create(
-          [{
-            userId,
-            type:          TransactionType.CONSUMPTION,
-            source:        TransactionSource.AI_REQUEST,
-            status:        TransactionStatus.PENDING,
-            amount:        estimatedCost,
-            balanceBefore: balanceBeforeReserve,
-            balanceAfter:  walletLocked.balance,
-            aiRequestId:   aiRequest._id,
-            metadata: {
-              service,
-              estimatedCost,
-              reserveStatus: "RESERVED",
-            },
-          }],
-          { session: dbSession },
-        );
-      });
+            await TokenTransaction.create(
+              [{
+                userId,
+                type:          TransactionType.CONSUMPTION,
+                source:        TransactionSource.AI_REQUEST,
+                status:        TransactionStatus.PENDING,
+                amount:        estimatedCost,
+                balanceBefore: balanceBeforeReserve,
+                balanceAfter:  walletLocked.balance,
+                aiRequestId:   aiRequest._id,
+                metadata: {
+                  service,
+                  estimatedCost,
+                  reserveStatus: "RESERVED",
+                },
+              }],
+              { session: dbSession },
+            );
+          });
+          reservedSuccess = true;
+        } catch (txnErr: any) {
+          if (txnErr.message === "INSUFFICIENT_TOKENS" || txnErr.message === "WALLET_NOT_FOUND") {
+            throw txnErr;
+          }
+          console.warn("⚠️ Standalone MongoDB detected in token reserve — executing without session transaction.");
+        }
+      }
+
+      if (!reservedSuccess) {
+        if (!wallet) throw new Error("WALLET_NOT_FOUND");
+        if (wallet.balance < estimatedCost) throw new Error("INSUFFICIENT_TOKENS");
+
+        balanceBeforeReserve = wallet.balance;
+        wallet.balance -= estimatedCost;
+        await wallet.save();
+
+        await TokenTransaction.create({
+          userId,
+          type: TransactionType.CONSUMPTION,
+          source: TransactionSource.AI_REQUEST,
+          status: TransactionStatus.PENDING,
+          amount: estimatedCost,
+          balanceBefore: balanceBeforeReserve,
+          balanceAfter: wallet.balance,
+          aiRequestId: aiRequest._id,
+          metadata: { service, estimatedCost, reserveStatus: "RESERVED" },
+        });
+      }
     } catch (reserveErr: any) {
-      await dbSession.endSession();
+      if (dbSession) await dbSession.endSession().catch(() => {});
 
       const code =
         reserveErr.message === "INSUFFICIENT_TOKENS" ? "INSUFFICIENT_TOKENS"
@@ -268,6 +355,28 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
       status: AIRequestStatus.PROCESSING,
     });
 
+    // ── Step 7.5: Apply Anti-Hallucination Prompt Enhancement ────────────────
+    const category = mapAIServiceToCategory(service);
+    const antiHallucinationResult = buildAntiHallucinationPrompt({
+      prompt,
+      options: {
+        category,
+        aspectRatio: parameters?.aspectRatio,
+        style: parameters?.style,
+        quality: parameters?.quality,
+        outputFormat: parameters?.outputFormat,
+        strictMode: parameters?.strictMode ?? true,
+      },
+      systemPromptOverride: systemPrompt,
+    });
+
+    const activePrompt = parameters?.disableAntiHallucination
+      ? prompt
+      : antiHallucinationResult.enhancedPrompt;
+    const activeSystemPrompt = parameters?.disableAntiHallucination
+      ? systemPrompt
+      : antiHallucinationResult.systemPrompt;
+
     // ── Step 8: Execute Provider Call with Failover ───────────────────────────
 
     let providerResponse: any = null;
@@ -287,19 +396,18 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
         `[AIRequest] Attempt ${attemptNumber} — provider: ${providerConfig.provider}, model: ${currentModel}`,
       );
 
-      // The gateway resolves API keys by provider name from its own credential store.
-      // FIX: pass empty string instead of null — gateway signature expects string.
       const result = await executeProviderRequest(
         providerConfig.provider,
         "",
         {
           model:               currentModel,
-          prompt,
-          systemPrompt,
+          prompt:              activePrompt,
+          systemPrompt:        activeSystemPrompt,
           conversationHistory,
           parameters: {
             ...parameters,
             imageUrl: parameters?.imageUrl,
+            negativePrompt: antiHallucinationResult.negativePrompt,
           },
           maxTokens:   providerConfig.maxTokens   ?? parameters?.maxTokens,
           temperature: providerConfig.temperature ?? parameters?.temperature,
@@ -320,45 +428,64 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
     }
 
     // ── Step 9: All Providers Failed → Release Reserve ────────────────────────
-    // Reuse the existing dbSession — it is still open on this path.
 
     if (!providerResponse?.success) {
-      await dbSession
-        .withTransaction(async () => {
-          const walletRestore = await TokenWalletModel.findOne({ userId }).session(dbSession);
-          if (!walletRestore) return;
+      let releasedSuccess = false;
+      if (dbSession) {
+        try {
+          await dbSession.withTransaction(async () => {
+            const walletRestore = await TokenWalletModel.findOne({ userId }).session(dbSession);
+            if (!walletRestore) return;
 
-          const balanceBefore    = walletRestore.balance;
+            const balanceBefore    = walletRestore.balance;
+            walletRestore.balance += estimatedCost;
+            await walletRestore.save({ session: dbSession });
+
+            await TokenTransaction.create(
+              [{
+                userId,
+                type:          TransactionType.REVERSAL,
+                source:        TransactionSource.SYSTEM,
+                status:        TransactionStatus.COMPLETED,
+                amount:        estimatedCost,
+                balanceBefore,
+                balanceAfter:  walletRestore.balance,
+                aiRequestId:   aiRequest._id,
+                metadata: {
+                  service,
+                  reason: "ALL_PROVIDERS_FAILED",
+                },
+              }],
+              { session: dbSession },
+            );
+          });
+          releasedSuccess = true;
+        } catch (releaseErr) {
+          console.warn("[AIRequest] Transaction release fallback:", releaseErr);
+        }
+      }
+
+      if (!releasedSuccess) {
+        const walletRestore = await TokenWalletModel.findOne({ userId });
+        if (walletRestore) {
+          const balanceBefore = walletRestore.balance;
           walletRestore.balance += estimatedCost;
-          await walletRestore.save({ session: dbSession });
+          await walletRestore.save();
+          await TokenTransaction.create({
+            userId,
+            type: TransactionType.REVERSAL,
+            source: TransactionSource.SYSTEM,
+            status: TransactionStatus.COMPLETED,
+            amount: estimatedCost,
+            balanceBefore,
+            balanceAfter: walletRestore.balance,
+            aiRequestId: aiRequest._id,
+            metadata: { service, reason: "ALL_PROVIDERS_FAILED" },
+          });
+        }
+      }
 
-          await TokenTransaction.create(
-            [{
-              userId,
-              type:          TransactionType.REVERSAL,    // reverses the CONSUMPTION reserve
-              source:        TransactionSource.SYSTEM,
-              status:        TransactionStatus.COMPLETED,
-              amount:        estimatedCost,
-              balanceBefore,
-              balanceAfter:  walletRestore.balance,
-              aiRequestId:   aiRequest._id,
-              metadata: {
-                service,
-                reason: "ALL_PROVIDERS_FAILED",
-              },
-            }],
-            { session: dbSession },
-          );
-        })
-        .catch((releaseErr) => {
-          // CRITICAL: manual reconciliation required — do not surface to user
-          console.error(
-            `[AIRequest] CRITICAL — failed to release reserve for ${aiRequest._id}:`,
-            releaseErr,
-          );
-        });
-
-      await dbSession.endSession();
+      if (dbSession) await dbSession.endSession().catch(() => {});
 
       await AIRequestModel.findByIdAndUpdate(aiRequest._id, {
         status:       AIRequestStatus.FAILED,
@@ -374,78 +501,111 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
     }
 
     // ── Step 10: Reconcile Actual Token Cost ──────────────────────────────────
-    // dbSession is still open — reuse it. Do NOT call startSession() again.
 
-    const actualTokens = providerResponse.usage.totalTokens || estimatedTokens;
+    const actualTokens = providerResponse.usage?.totalTokens || estimatedTokens;
     const actualCost   = Math.ceil(actualTokens * tokensPerUnit);
     const delta        = estimatedCost - actualCost; // positive = overpaid
 
-    await dbSession.withTransaction(async () => {
-      const walletFinal = await TokenWalletModel.findOne({ userId }).session(dbSession);
-      if (!walletFinal) throw new Error("Wallet missing during reconciliation");
+    let reconciledSuccess = false;
+    if (dbSession) {
+      try {
+        await dbSession.withTransaction(async () => {
+          const walletFinal = await TokenWalletModel.findOne({ userId }).session(dbSession);
+          if (!walletFinal) throw new Error("Wallet missing during reconciliation");
 
-      const balanceBefore = walletFinal.balance;
+          const balanceBefore = walletFinal.balance;
 
-      if (delta > 0) {
-        // Overpaid — refund the delta back to the wallet
-        walletFinal.balance      += delta;
-        walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-        await walletFinal.save({ session: dbSession });
+          if (delta > 0) {
+            walletFinal.balance      += delta;
+            walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
+            await walletFinal.save({ session: dbSession });
 
-        await TokenTransaction.create(
-          [{
-            userId,
-            type:          TransactionType.REVERSAL,   // partial reversal of the reserve
-            source:        TransactionSource.SYSTEM,
-            status:        TransactionStatus.COMPLETED,
-            amount:        delta,
-            balanceBefore,
-            balanceAfter:  walletFinal.balance,
-            aiRequestId:   aiRequest._id,
-            metadata:      { estimatedCost, actualCost, delta, reconcileReason: "OVERPAID" },
-          }],
-          { session: dbSession },
-        );
-      } else if (delta < 0) {
-        // Underpaid — charge the shortfall if balance allows
-        const shortfall = Math.abs(delta);
+            await TokenTransaction.create(
+              [{
+                userId,
+                type:          TransactionType.REVERSAL,
+                source:        TransactionSource.SYSTEM,
+                status:        TransactionStatus.COMPLETED,
+                amount:        delta,
+                balanceBefore,
+                balanceAfter:  walletFinal.balance,
+                aiRequestId:   aiRequest._id,
+                metadata:      { estimatedCost, actualCost, delta, reconcileReason: "OVERPAID" },
+              }],
+              { session: dbSession },
+            );
+          } else if (delta < 0) {
+            const shortfall = Math.abs(delta);
+            if (walletFinal.balance >= shortfall) {
+              walletFinal.balance      -= shortfall;
+              walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
+              await walletFinal.save({ session: dbSession });
 
-        if (walletFinal.balance >= shortfall) {
-          walletFinal.balance      -= shortfall;
-          walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-          await walletFinal.save({ session: dbSession });
-
-          await TokenTransaction.create(
-            [{
-              userId,
-              type:          TransactionType.CONSUMPTION,
-              source:        TransactionSource.AI_REQUEST,
-              status:        TransactionStatus.COMPLETED,
-              amount:        shortfall,
-              balanceBefore,
-              balanceAfter:  walletFinal.balance,
-              aiRequestId:   aiRequest._id,
-              metadata:      { estimatedCost, actualCost, shortfall, reconcileReason: "UNDERPAID" },
-            }],
-            { session: dbSession },
-          );
-        } else {
-          // Insufficient balance for shortfall — accept the loss, log for billing audit.
-          console.warn(
-            `[AIRequest] Shortfall of ${shortfall} tokens not recoverable for request ${aiRequest._id} — accepted as loss`,
-          );
-          walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-          await walletFinal.save({ session: dbSession });
-        }
-      } else {
-        // Exact match — only update totalConsumed
-        walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-        await walletFinal.save({ session: dbSession });
+              await TokenTransaction.create(
+                [{
+                  userId,
+                  type:          TransactionType.CONSUMPTION,
+                  source:        TransactionSource.AI_REQUEST,
+                  status:        TransactionStatus.COMPLETED,
+                  amount:        shortfall,
+                  balanceBefore,
+                  balanceAfter:  walletFinal.balance,
+                  aiRequestId:   aiRequest._id,
+                  metadata:      { estimatedCost, actualCost, shortfall, reconcileReason: "UNDERPAID" },
+                }],
+                { session: dbSession },
+              );
+            } else {
+              walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
+              await walletFinal.save({ session: dbSession });
+            }
+          } else {
+            walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
+            await walletFinal.save({ session: dbSession });
+          }
+        });
+        reconciledSuccess = true;
+      } catch (recErr) {
+        console.warn("[AIRequest] Transaction reconciliation fallback:", recErr);
       }
-    });
+    }
 
-    // Session is fully done — close it once here
-    await dbSession.endSession();
+    if (!reconciledSuccess) {
+      const walletFinal = await TokenWalletModel.findOne({ userId });
+      if (walletFinal) {
+        if (delta > 0) {
+          walletFinal.balance += delta;
+        } else if (delta < 0) {
+          const shortfall = Math.abs(delta);
+          if (walletFinal.balance >= shortfall) walletFinal.balance -= shortfall;
+        }
+        walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
+        await walletFinal.save();
+      }
+    }
+
+    if (dbSession) await dbSession.endSession().catch(() => {});
+
+    // ── Step 10.5: Store Generated Media on Cloudinary & Save Asset ────────────
+    if (providerResponse.imageUrls && providerResponse.imageUrls.length > 0) {
+      const isVideo = service === "video_gen";
+      const uploadedCloudinaryUrl = await uploadMediaToCloudinary(
+        providerResponse.imageUrls[0],
+        "ai_assets",
+        isVideo ? "video" : "image"
+      );
+      providerResponse.imageUrls[0] = uploadedCloudinaryUrl;
+
+      // Save asset record for user's creative vault
+      await AIAssetModel.create({
+        user: userId,
+        type: isVideo ? "video" : "image",
+        title: prompt.substring(0, 40) + "...",
+        prompt,
+        content: uploadedCloudinaryUrl,
+        model: usedModel,
+      }).catch((assetErr) => console.warn("Failed to create AIAsset record in executeAIRequest:", assetErr));
+    }
 
     // ── Step 11: Mark COMPLETED ───────────────────────────────────────────────
 
@@ -472,10 +632,19 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
       { new: true },
     ).lean();
 
-    // Notify Admin Real-Time of Service Usage (Privacy Safe: Service & Model only)
+    // Notify User & Admin Real-Time of Token Deduction & Service Usage
     try {
-      const { emitAdminEntityUpdate } = await import("@/socket/socket.emitter.js");
+      const { emitAdminEntityUpdate, emitWalletUpdate } = await import("@/socket/socket.emitter.js");
       const { AuditLogModel } = await import("../admin/auditLog.model.js");
+
+      const walletUpdated = await TokenWalletModel.findOne({ userId });
+      if (walletUpdated) {
+        emitWalletUpdate(userId, {
+          balance: walletUpdated.balance,
+          totalConsumed: walletUpdated.totalConsumed,
+          reason: "DEDUCTION"
+        });
+      }
 
       const userEmail = (req.user as any)?.email || "User";
       const userUsername = (req.user as any)?.username || "User";
@@ -497,7 +666,7 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
         },
       });
     } catch (notifyErr) {
-      console.error("Admin AI usage notification error:", notifyErr);
+      console.error("AI usage notification error:", notifyErr);
     }
 
     console.log(
@@ -911,9 +1080,6 @@ export const adminGetUsageStats = AsyncHandler(async (req, res, next) => {
 // USER — Generate Image (with upload)
 // POST /api/v1/ai-request/generate-image
 
-import { uploadFile } from "@/utils/cloudinary.util.js";
-import { AIAssetModel } from "../admin/asset.model.js";
-
 export const generateImageHandler = AsyncHandler(async (req, res, next) => {
   try {
     const userId = req.user?.id;
@@ -936,43 +1102,65 @@ export const generateImageHandler = AsyncHandler(async (req, res, next) => {
       : prompt;
 
     // ── Check Subscription & Tokens (Simplified) ──
-    const subscription = await UserSubscriptionModel.findOne({ user: userId, status: "active" }).lean();
+    const subscription = await UserSubscriptionModel.findOne({ user: userId, status: UserSubscriptionStatus.ACTIVE }).lean();
     if (!subscription || (subscription.endDate && new Date(subscription.endDate) < new Date())) {
       return errorHandler(res, 403, false, "Active subscription required.", {});
     }
 
-    const wallet = await TokenWalletModel.findOne({ userId });
-    if (!wallet) return errorHandler(res, 404, false, "Wallet not found.", {});
+    let wallet = await TokenWalletModel.findOne({ userId });
+    if (!wallet) {
+      wallet = await TokenWalletModel.create({ userId, balance: 200, totalBonus: 200 });
+    }
 
-    const estimatedCost = 5; // Image generation fixed cost for now
+    const estimatedCost = resolveServiceTokenRate(req.body.service || "image_gen");
     if (wallet.balance < estimatedCost) {
       return errorHandler(res, 402, false, "Insufficient tokens for image generation.", {});
     }
 
     // ── Execute Provider Call ──
-    let providerName = "huggingface";
-    let modelToUse = modelType || "stabilityai/stable-diffusion-xl-base-1.0";
+    let providerName = "";
+    let modelToUse = "";
 
-    const systemModel = await SystemModelModel.findOne({
-      $or: [
-        { version: modelType },
-        { name: modelType },
-        { _id: mongoose.Types.ObjectId.isValid(modelType) ? modelType : null }
-      ],
-      type: "image",
-      status: "active"
-    }).lean();
+    let systemModel = null;
+
+    if (modelType) {
+      systemModel = await SystemModelModel.findOne({
+        $or: [
+          { version: modelType },
+          { name: modelType },
+          { _id: mongoose.Types.ObjectId.isValid(modelType) ? modelType : null }
+        ],
+        status: "active"
+      }).lean();
+    }
+
+    if (!systemModel) {
+      systemModel = await SystemModelModel.findOne({
+        type: { $in: ["image", "assets"] },
+        status: "active"
+      }).sort({ createdAt: -1 }).lean();
+    }
 
     if (systemModel) {
-      providerName = (systemModel.provider || "huggingface").toLowerCase();
+      let pKey = (systemModel.provider || "").toLowerCase();
+      if (pKey.includes("huggingface")) pKey = "huggingface";
+      else if (pKey.includes("openai")) pKey = "openai";
+      else if (pKey.includes("google") || pKey.includes("gemini")) pKey = "gemini";
+      else if (pKey.includes("anthropic")) pKey = "anthropic";
+
+      providerName = pKey || "huggingface";
       modelToUse = systemModel.version;
     } else {
-      const serviceConfig = await ServiceConfigModel.findOne({ service: "image_gen", enabled: true }).lean();
+      const serviceConfig = await ServiceConfigModel.findOne({ service: AIService.IMAGE_GEN, enabled: true }).lean();
       const providers = serviceConfig?.providers?.filter((p: any) => p.enabled).sort((a: any, b: any) => a.priority - b.priority) || [];
       if (providers[0]) {
         providerName = providers[0].provider;
         modelToUse = modelType || providers[0].model;
       }
+    }
+
+    if (!providerName || !modelToUse) {
+      return errorHandler(res, 503, false, "No active AI image model or provider is currently configured in System Models.", {});
     }
 
     // Reserve Tokens
@@ -1004,15 +1192,28 @@ export const generateImageHandler = AsyncHandler(async (req, res, next) => {
       return errorHandler(res, 500, false, result.error?.message || "Failed to generate image", {});
     }
 
-    // ── Save Asset ──
+    // ── Save Asset to Cloudinary & DB ──
+    const cloudinaryUrl = await uploadMediaToCloudinary(result.imageUrls[0], "ai_assets", "image");
+
     const newAsset = await AIAssetModel.create({
       user: userId,
       type: "image",
       title: prompt.substring(0, 40) + "...",
       prompt: finalPrompt,
-      content: result.imageUrls[0],
+      content: cloudinaryUrl,
       model: modelToUse
     });
+
+    try {
+      const { emitWalletUpdate } = await import("@/socket/socket.emitter.js");
+      emitWalletUpdate(userId, {
+        balance: wallet.balance,
+        totalConsumed: wallet.totalConsumed,
+        reason: "DEDUCTION"
+      });
+    } catch (sErr) {
+      console.warn("Socket notification warning in generateImageHandler:", sErr);
+    }
 
     return successHandler(res, 201, true, "Image generated successfully.", { asset: newAsset });
   } catch (error) {

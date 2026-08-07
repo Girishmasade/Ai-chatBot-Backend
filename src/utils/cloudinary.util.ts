@@ -74,3 +74,28 @@ export const extractPublicId = (cloudinaryUrl: string): string => {
   const publicIdWithExt = parts.slice(startIndex).join("/");
   return publicIdWithExt.replace(/\.[^/.]+$/, ""); // strip file extension
 };
+
+// Safe Cloudinary Uploader for AI Generated Assets
+export const uploadMediaToCloudinary = async (
+  contentUrlOrBase64: string,
+  folder: string = "ai_assets",
+  resourceType: FileType = "auto"
+): Promise<string> => {
+  if (!contentUrlOrBase64) return contentUrlOrBase64;
+
+  if (contentUrlOrBase64.includes("res.cloudinary.com")) {
+    return contentUrlOrBase64;
+  }
+
+  try {
+    const uploadRes = await uploadFile(contentUrlOrBase64, folder, resourceType);
+    if (uploadRes?.secure_url) {
+      console.log(`[Cloudinary] Successfully stored asset on Cloudinary: ${uploadRes.secure_url}`);
+      return uploadRes.secure_url;
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ [Cloudinary] Media upload warning: ${err?.message}`);
+  }
+
+  return contentUrlOrBase64;
+};

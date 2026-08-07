@@ -4,7 +4,7 @@ export interface IMenuItem extends Document {
   label: string;
   icon: string;
   target: string;
-  visible: "User Menu" | "Admin Menu";
+  visible: "User Menu" | "Admin Menu" | "All";
   order: number;
   isActive: boolean;
   parentId?: mongoose.Types.ObjectId;

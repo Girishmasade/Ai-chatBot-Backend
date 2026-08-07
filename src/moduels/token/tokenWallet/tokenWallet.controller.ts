@@ -120,10 +120,10 @@ export async function initWallet(
   if (existing) return existing;
 
   if (session) {
-    const [created] = await TokenWalletModel.create([{ userId }], { session });
+    const [created] = await TokenWalletModel.create([{ userId, balance: 200, totalBonus: 200 }], { session });
     return created;
   }
-  return TokenWalletModel.create({ userId });
+  return TokenWalletModel.create({ userId, balance: 200, totalBonus: 200 });
 }
 
 /**
@@ -135,11 +135,13 @@ export async function validateSufficientBalance(
   userId: string,
   required: number,
 ): Promise<void> {
-  const wallet = await TokenWalletModel.findOne(
+  let wallet = await TokenWalletModel.findOne(
     { userId },
     { balance: 1, status: 1, frozenReason: 1 },
   );
-  if (!wallet) throw new Error(`Wallet not found for user ${userId}`);
+  if (!wallet) {
+    wallet = await initWallet(userId);
+  }
 
   if (wallet.status === WalletStatus.FROZEN) {
     throw new Error(
@@ -163,13 +165,13 @@ export const getUserWalletBalance = AsyncHandler(async (req, res, next) => {
       return errorHandler(res, 401, false, "User not authenticated", {});
     }
 
-    const wallet = await TokenWalletModel.findOne({ userId });
-
-    console.log("get my wallet :", wallet);
+    let wallet = await TokenWalletModel.findOne({ userId });
 
     if (!wallet) {
-      return errorHandler(res, 404, false, "wallet not found", {});
+      wallet = await initWallet(userId);
     }
+
+    console.log("get my wallet :", wallet);
 
     return successHandler(res, 200, true, "wallet Fetched successfully", {
       wallet: toPublicView(wallet),

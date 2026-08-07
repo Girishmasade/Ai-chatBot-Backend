@@ -23,15 +23,14 @@ subscriptionRouter.get(
 );
 
 subscriptionRouter.put(
-  "/update-subscription",
+  "/update-subscription/:subId",
   authMiddleware,
   isAdmin,
-  validate(updateSub),
   updateSubscriptionForUser,
 );
 
 subscriptionRouter.delete(
-  "/delete-subscription",
+  "/delete-subscription/:subId",
   authMiddleware,
   isAdmin,
   deleteSubscriptionForUser,

@@ -8,23 +8,25 @@
 // Payload Interfaces
 
 export interface SocketNotification {
-  _id: string;
-  type: string;
-  priority: string;
+  _id?: string;
+  id?: string;
+  type?: string;
+  priority?: string;
   title: string;
   message: string;
-  isRead: boolean;
+  isRead?: boolean;
   metadata?: Record<string, any>;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface SocketWalletUpdate {
   balance: number;
-  totalConsumed: number;
-  totalPurchased: number;
-  totalBonus: number;
-  totalPlanCredit: number;
-  status: string;
+  totalConsumed?: number;
+  totalPurchased?: number;
+  totalBonus?: number;
+  totalPlanCredit?: number;
+  status?: string;
+  reason?: string;
 }
 
 export interface SocketSubscriptionUpdate {
