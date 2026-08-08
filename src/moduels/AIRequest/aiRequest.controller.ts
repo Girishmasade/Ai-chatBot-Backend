@@ -592,7 +592,7 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
       const uploadedCloudinaryUrl = await uploadMediaToCloudinary(
         providerResponse.imageUrls[0],
         "ai_assets",
-        isVideo ? "video" : "image"
+        "auto"
       );
       providerResponse.imageUrls[0] = uploadedCloudinaryUrl;
 
@@ -629,7 +629,7 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
           imageUrls:         providerResponse.imageUrls ?? [],
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     // Notify User & Admin Real-Time of Token Deduction & Service Usage

@@ -28,9 +28,7 @@ const paginationQuery = z.object({
 
 export const executeAIRequestSchema = z.object({
   body: z.object({
-    service: z.nativeEnum(AIService, {
-      error: "A valid service type is required",
-    }),
+    service: z.nativeEnum(AIService),
 
     prompt: z
       .string()

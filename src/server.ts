@@ -68,8 +68,8 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 
 app.use(errorHandler);
 
-server.listen(PORT, "0.0.0.0", async () => {
-  console.log(`✅ Server listening on 0.0.0.0:${PORT}`);
+server.listen(PORT, async () => {
+  console.log(`✅ Server listening on port ${PORT}`);
 
   try {
     startWorkers();

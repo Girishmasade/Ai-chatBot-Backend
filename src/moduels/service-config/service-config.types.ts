@@ -4,5 +4,6 @@ export enum AIService {
   PROMPT_GEN = "prompt_gen",
   IMAGE_GEN = "image_gen",
   ASSET_GEN = "asset_gen",
+  VIDEO_GEN = "video_gen",
 }
 

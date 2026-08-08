@@ -17,6 +17,7 @@ export const PROVIDER_TIMEOUT_MS: Record<string, number> = {
   BUSINESS_IDEAS: 60_000,
   IMAGE_GEN:      90_000,
   ASSET_GEN:      90_000,
+  VIDEO_GEN:     120_000,
   EMBEDDING:      15_000,
 };
 
