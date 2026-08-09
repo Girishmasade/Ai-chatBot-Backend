@@ -5,6 +5,31 @@ import { AIRequestStatus, AIRequestPriority } from "./aiRequest.type.js";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
+export const aiServiceSchema = z.preprocess(
+  (val) => {
+    if (!val || (typeof val === "string" && !val.trim())) return AIService.AI_CHAT;
+    if (typeof val !== "string") return val;
+    const normalized = val.trim().toLowerCase();
+    if (normalized === "chat" || normalized === "text") return AIService.AI_CHAT;
+    if (normalized === "image") return AIService.IMAGE_GEN;
+    if (normalized === "video" || normalized === "video_gen") return AIService.VIDEO_GEN;
+    if (normalized === "asset" || normalized === "asset_gen") return AIService.ASSET_GEN;
+    if (normalized === "business" || normalized === "plan" || normalized === "business_ideas") return AIService.BUSINESS_IDEAS;
+    if (normalized === "prompt" || normalized === "prompt_gen") return AIService.PROMPT_GEN;
+    return val;
+  },
+  z.enum([
+    AIService.AI_CHAT,
+    AIService.BUSINESS_IDEAS,
+    AIService.PROMPT_GEN,
+    AIService.IMAGE_GEN,
+    AIService.ASSET_GEN,
+    AIService.VIDEO_GEN,
+  ], {
+    errorMap: () => ({ message: "A valid service type is required" }),
+  })
+);
+
 const objectIdParam = z
   .string()
   .regex(/^[a-fA-F0-9]{24}$/, "Invalid ObjectId format");
@@ -28,7 +53,7 @@ const paginationQuery = z.object({
 
 export const executeAIRequestSchema = z.object({
   body: z.object({
-    service: z.nativeEnum(AIService),
+    service: aiServiceSchema,
 
     prompt: z
       .string()
@@ -78,7 +103,7 @@ export const executeAIRequestSchema = z.object({
 
 export const estimateCostSchema = z.object({
   body: z.object({
-    service: z.nativeEnum(AIService),
+    service: aiServiceSchema,
     prompt:  z.string().trim().min(1).max(10_000),
     systemPrompt:        z.string().trim().max(8_000).optional(),
     conversationHistory: z.array(conversationMessageSchema).max(50).optional(),
@@ -105,7 +130,7 @@ export const cancelAIRequestSchema = z.object({
 
 export const listMyRequestsSchema = z.object({
   query: paginationQuery.extend({
-    service:  z.nativeEnum(AIService).optional(),
+    service:  aiServiceSchema.optional(),
     status:   z.nativeEnum(AIRequestStatus).optional(),
     priority: z.nativeEnum(AIRequestPriority).optional(),
     from:     z.string().optional(),
@@ -118,7 +143,7 @@ export const listMyRequestsSchema = z.object({
 export const adminListRequestsSchema = z.object({
   query: paginationQuery.extend({
     userId:   objectIdParam.optional(),
-    service:  z.nativeEnum(AIService).optional(),
+    service:  aiServiceSchema.optional(),
     provider: z.nativeEnum(ProviderName).optional(),
     status:   z.nativeEnum(AIRequestStatus).optional(),
     priority: z.nativeEnum(AIRequestPriority).optional(),

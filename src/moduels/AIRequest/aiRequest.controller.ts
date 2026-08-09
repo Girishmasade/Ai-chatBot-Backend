@@ -225,13 +225,20 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
       wallet = await TokenWalletModel.create({ userId, balance: 200, totalBonus: 200 });
     }
 
-    const estimatedTokens = estimateTotalTokens(prompt, systemPrompt, conversationHistory);
-    const estimatedCost = Math.ceil(estimatedTokens * tokensPerUnit);
+    let estimatedTokens = 1;
+    let estimatedCost = 1;
+    if (service === "video_gen" || service === "image_gen" || service === "asset_gen") {
+      estimatedTokens = 1;
+      estimatedCost = Math.max(1, Math.ceil(tokensPerUnit));
+    } else {
+      estimatedTokens = estimateTotalTokens(prompt, systemPrompt, conversationHistory);
+      estimatedCost = Math.max(1, Math.ceil(estimatedTokens * tokensPerUnit));
+    }
 
     if (wallet.balance < estimatedCost) {
       return errorHandler(
         res, 402, false,
-        `Insufficient tokens. Required: ~${estimatedCost}, Available: ${wallet.balance}.`,
+        `Insufficient tokens. Required: ${estimatedCost}, Available: ${wallet.balance}.`,
         { required: estimatedCost, available: wallet.balance },
       );
     }
@@ -592,7 +599,7 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
       const uploadedCloudinaryUrl = await uploadMediaToCloudinary(
         providerResponse.imageUrls[0],
         "ai_assets",
-        "auto"
+        isVideo ? "video" : "auto"
       );
       providerResponse.imageUrls[0] = uploadedCloudinaryUrl;
 

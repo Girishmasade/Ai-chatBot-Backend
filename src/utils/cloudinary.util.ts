@@ -22,7 +22,30 @@ export const uploadFile = async (
   resourceType: FileType = "auto", 
 ): Promise<UploadFiles> => {                
   try {
-    const response = await cloudinary.uploader.upload(filePath, {
+    let targetPayload = filePath;
+
+    // If filePath is a remote HTTP URL, fetch the buffer locally first to prevent 403 CDN blockages
+    if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+      if (!filePath.includes("res.cloudinary.com")) {
+        try {
+          const fetchRes = await fetch(filePath, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            },
+          });
+          if (fetchRes.ok) {
+            const arrayBuffer = await fetchRes.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const contentType = fetchRes.headers.get("content-type") || (resourceType === "video" ? "video/mp4" : "image/jpeg");
+            targetPayload = `data:${contentType};base64,${buffer.toString("base64")}`;
+          }
+        } catch (fetchErr: any) {
+          console.warn(`[Cloudinary] Buffer fetch warning for ${filePath}: ${fetchErr?.message}`);
+        }
+      }
+    }
+
+    const response = await cloudinary.uploader.upload(targetPayload, {
       folder,
       resource_type: resourceType,
     });
@@ -83,14 +106,39 @@ export const uploadMediaToCloudinary = async (
 ): Promise<string> => {
   if (!contentUrlOrBase64) return contentUrlOrBase64;
 
+  // Auto-detect video if resourceType is auto
+  let targetResourceType: FileType = resourceType;
+  const isVideoContent =
+    contentUrlOrBase64.startsWith("data:video/") ||
+    contentUrlOrBase64.endsWith(".mp4") ||
+    contentUrlOrBase64.endsWith(".webm") ||
+    contentUrlOrBase64.includes("/video/upload/") ||
+    contentUrlOrBase64.includes("gtv-videos-bucket") ||
+    contentUrlOrBase64.includes("googleapis.com");
+
+  if (targetResourceType === "auto" && isVideoContent) {
+    targetResourceType = "video";
+  }
+
+  // Route video files into the video subfolder (e.g. ai_assets/video)
+  let targetFolder = folder;
+  if (targetResourceType === "video" || isVideoContent) {
+    targetFolder = folder.endsWith("/video") ? folder : `${folder}/video`;
+  }
+
+  // If it's already on Cloudinary with correct resource type, return as is
   if (contentUrlOrBase64.includes("res.cloudinary.com")) {
-    return contentUrlOrBase64;
+    if (targetResourceType === "video" && contentUrlOrBase64.includes("/image/upload/")) {
+      // Re-upload video if it was previously mis-classified as image
+    } else {
+      return contentUrlOrBase64;
+    }
   }
 
   try {
-    const uploadRes = await uploadFile(contentUrlOrBase64, folder, resourceType);
+    const uploadRes = await uploadFile(contentUrlOrBase64, targetFolder, targetResourceType);
     if (uploadRes?.secure_url) {
-      console.log(`[Cloudinary] Successfully stored asset on Cloudinary: ${uploadRes.secure_url}`);
+      console.log(`[Cloudinary] Successfully stored ${targetResourceType} asset on Cloudinary: ${uploadRes.secure_url}`);
       return uploadRes.secure_url;
     }
   } catch (err: any) {
