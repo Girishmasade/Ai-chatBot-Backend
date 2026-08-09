@@ -1,0 +1,52 @@
+src/helper/pagination.helper.ts(1,32): error TS2614: Module '"mongoose"' has no exported member 'FilterQuery'. Did you mean to use 'import FilterQuery from "mongoose"' instead?
+src/middlewares/socialmedia.middleware.ts(46,5): error TS2739: Type '{ id: string; role: "user" | "admin"; email: string; username: string; googleId: string | undefined; githubId: string | undefined; facebookId: string | undefined; }' is missing the following properties from type 'User': avatar, isVerified
+src/moduels/Provider-api-key/provider-api-key.types.ts(37,14): error TS2739: Type '{ openai: AdapterType.OPENAI_COMPATIBLE; chatgpt: AdapterType.OPENAI_COMPATIBLE; grok: AdapterType.OPENAI_COMPATIBLE; deepseek: AdapterType.OPENAI_COMPATIBLE; groq: AdapterType.OPENAI_COMPATIBLE; anthropic: AdapterType.ANTHROPIC; gemini: AdapterType.GEMINI; huggingface: AdapterType.HUGGINGFACE; pollinations: Adapter...' is missing the following properties from type 'Record<ProviderName, AdapterType>': lmstudio, vllm
+src/moduels/admin/asset.model.ts(3,18): error TS2430: Interface 'IAIAsset' incorrectly extends interface 'Document<ObjectId, any, any, Record<string, any>, {}>'.
+  Types of property 'model' are incompatible.
+    Type 'string' is not assignable to type '{ <ModelType extends Model<unknown>>(name: string): ModelType; <ModelType extends Model<any, {}, {}, {}, any, any, any>>(): ModelType; }'.
+src/moduels/document/document.service.ts(4,15): error TS2614: Module '"mongoose"' has no exported member 'FilterQuery'. Did you mean to use 'import FilterQuery from "mongoose"' instead?
+src/moduels/document/document.service.ts(48,58): error TS1361: 'StorageProviderType' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(90,15): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(104,38): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(113,20): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(115,15): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(123,15): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(127,20): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(135,15): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(147,63): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(156,13): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(158,18): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(184,46): error TS1361: 'StorageProviderType' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(190,13): error TS1361: 'DocumentStatus' cannot be used as a value because it was imported using 'import type'.
+src/moduels/document/document.service.ts(191,22): error TS1361: 'StorageProviderType' cannot be used as a value because it was imported using 'import type'.
+src/moduels/payment/payment.validation.ts(7,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: readonly [PaymentItemType.SUBSCRIPTION, PaymentItemType.TOKEN_PACKAGE], params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidValue<unknown>> | undefined; message?: string | undefined; } | undefined): ZodEnum<...>', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidValue<unknown>> | undefined; message?: string | undefined; }'.
+  Overload 2 of 2, '(entries: Readonly<Record<string, EnumValue>>, params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidValue<unknown>> | undefined; message?: string | undefined; } | undefined): ZodEnum<...>', gave the following error.
+    Argument of type 'PaymentItemType[]' is not assignable to parameter of type 'Readonly<Record<string, EnumValue>>'.
+      Index signature for type 'string' is missing in type 'PaymentItemType[]'.
+src/moduels/payment/payment.validation.ts(10,24): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): ZodString', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+  Overload 2 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): $ZodType<...>', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+src/moduels/payment/payment.validation.ts(17,35): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): ZodString', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+  Overload 2 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): $ZodType<...>', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+src/moduels/payment/payment.validation.ts(18,37): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): ZodString', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+  Overload 2 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): $ZodType<...>', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+src/moduels/payment/payment.validation.ts(19,36): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): ZodString', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+  Overload 2 of 2, '(params?: string | { error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; } | undefined): $ZodType<...>', gave the following error.
+    Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: string | $ZodErrorMap<$ZodIssueInvalidType<unknown>> | undefined; message?: string | undefined; }'.
+src/utils/logger.ts(6,41): error TS2551: Property 'Transport' does not exist on type 'typeof winston'. Did you mean 'transport'?
+src/utils/logger.ts(13,12): error TS2339: Property 'emit' does not exist on type 'SocketIOTransport'.
+src/utils/logger.ts(58,5): error TS2740: Type 'SocketIOTransport' is missing the following properties from type 'TransportStream': writable, writableAborted, writableEnded, writableFinished, and 34 more.
+src/vectorStore/pinecone.client.ts(73,40): error TS2345: Argument of type 'VectorRecord[]' is not assignable to parameter of type 'UpsertOptions<RecordMetadata>'.
+  Property 'records' is missing in type 'VectorRecord[]' but required in type 'UpsertOptions<RecordMetadata>'.
