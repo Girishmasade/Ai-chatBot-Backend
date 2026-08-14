@@ -16,6 +16,9 @@ export interface IBrandingConfig extends Document {
   description: string;
   twitterUrl: string;
   linkedinUrl: string;
+  seoTitle: string;
+  seoDescription: string;
+  seoKeywords: string;
 }
 
 const brandingSchema = new Schema<IBrandingConfig>(
@@ -29,12 +32,15 @@ const brandingSchema = new Schema<IBrandingConfig>(
     themeMode: { type: String, default: "Black Amber" },
     primaryColor: { type: String, default: "#F59E0B" },
     accentGlow: { type: String, default: "rgba(245, 158, 11, 0.15)" },
-    footerText: { type: String, default: "The luxury standard for multi-modal intelligence workspace solutions." },
-    phone: { type: String, default: "+91 (80) 4125-9900" },
-    email: { type: String, default: "support@gochat.ai" },
-    description: { type: String, default: "The luxury standard for multi-modal intelligence workspace solutions." },
-    twitterUrl: { type: String, default: "https://twitter.com/gochatai" },
-    linkedinUrl: { type: String, default: "https://linkedin.com/company/gochatai" },
+    footerText: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    email: { type: String, default: "" },
+    description: { type: String, default: "" },
+    twitterUrl: { type: String, default: "" },
+    linkedinUrl: { type: String, default: "" },
+    seoTitle: { type: String, default: "" },
+    seoDescription: { type: String, default: "" },
+    seoKeywords: { type: String, default: "" },
   },
   { timestamps: true }
 );

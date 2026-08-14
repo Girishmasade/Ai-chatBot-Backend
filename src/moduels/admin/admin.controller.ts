@@ -485,6 +485,9 @@ export const getConfig = AsyncHandler(
         description: branding.description,
         twitterUrl: branding.twitterUrl,
         linkedinUrl: branding.linkedinUrl,
+        seoTitle: branding.seoTitle,
+        seoDescription: branding.seoDescription,
+        seoKeywords: branding.seoKeywords,
       },
       cookieConsents: mappedConsents,
     };
