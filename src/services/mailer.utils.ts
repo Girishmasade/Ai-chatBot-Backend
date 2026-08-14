@@ -1,17 +1,29 @@
 // src/utils/mailer.ts
 
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { SMTP_EMAIL, SMTP_PASSWORD } from "../env/env.import.js";
 
-// ── Transporter ────────────────────────────────────────────
+const isProd = process.env.NODE_ENV === "production";
 
-export const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: SMTP_EMAIL,
-    pass: SMTP_PASSWORD,
-  },
-});
+// ── Transporter (dev only — Gmail SMTP) ─────────────────────
+
+export const transporter = !isProd
+  ? nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: SMTP_EMAIL,
+        pass: SMTP_PASSWORD,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
+    })
+  : null;
+
+// ── Resend client (prod only — HTTPS API, avoids Render SMTP port blocks) ──
+
+const resend = isProd ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -263,14 +275,42 @@ const templates: Record<
 };
 
 // ── Main sendEmail ─────────────────────────────────────────
+// KEY CHANGE from original: this NEVER throws. It logs and resolves
+// to true/false, so a failed email can never break register/login/
+// reset-password/payment flows. Dev uses Gmail SMTP; prod uses Resend's
+// HTTPS API (avoids Render's SMTP port blocking that was causing ETIMEDOUT).
 
-export const sendEmail = async (options: EmailOptions): Promise<void> => {
+export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
   const { subject, html } = templates[options.type](options.payload);
 
-  await transporter.sendMail({
-    from: `"AI ChatBot" <${process.env.SMTP_EMAIL}>`,
-    to: options.to,
-    subject,
-    html,
-  });
-}
+  try {
+    if (isProd) {
+      const { data, error } = await resend!.emails.send({
+        from: `AI ChatBot <${process.env.EMAIL_FROM}>`,
+        to: options.to,
+        subject,
+        html,
+      });
+
+      if (error) throw new Error(error.message);
+      console.log(`[Mailer:PROD] Sent "${options.type}" to ${options.to} (${data?.id})`);
+      return true;
+    } else {
+      const info = await transporter!.sendMail({
+        from: `"AI ChatBot" <${SMTP_EMAIL}>`,
+        to: options.to,
+        subject,
+        html,
+      });
+
+      console.log(`[Mailer:DEV] Sent "${options.type}" to ${options.to} (${info.messageId})`);
+      return true;
+    }
+  } catch (err) {
+    console.error(
+      `[Mailer:${isProd ? "PROD" : "DEV"}] Failed to send "${options.type}" email to ${options.to}:`,
+      (err as Error).message
+    );
+    return false; // swallow — caller decides what to do, but auth flow never breaks
+  }
+};
