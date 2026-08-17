@@ -11,6 +11,7 @@ export const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
   secure: true, // Use SSL/TLS to avoid Render port blocking
+  family: 4,
   auth: {
     user: SMTP_EMAIL,
     pass: SMTP_PASSWORD, // Make sure to use an App Password if using Gmail
