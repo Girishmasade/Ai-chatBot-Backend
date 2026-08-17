@@ -11,7 +11,6 @@ export const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
   secure: true, // Use SSL/TLS to avoid Render port blocking
-  family: 4,
   auth: {
     user: SMTP_EMAIL,
     pass: SMTP_PASSWORD, // Make sure to use an App Password if using Gmail
@@ -103,7 +102,7 @@ const templates: Record<
   otp: (payload) => {
     const { otp, username } = payload as OTPEmailOptions["payload"];
     return {
-      subject: "Verify your email - OTP",
+      subject: `Your Verification Code: ${otp}`,
       html: baseLayout(`
         <h2 style="color: #333;">Hello, ${username} 👋</h2>
         <p style="color: #555;">

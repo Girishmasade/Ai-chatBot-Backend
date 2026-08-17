@@ -5,7 +5,8 @@ import { successHandler } from "../../utils/successHandler.util.js";
 import crypto from "crypto";
 import { AuthModel, type Auth } from "../auth/auth.models.js";
 import type { SendOTPInput, VerifyOTPInput } from "./otp.validator.js";
-import { sendEmail } from "../../services/mailer.utils.js";
+import { emailQueue } from "../../redis/scheduler/queue.registry.js";
+import { JobName } from "../../shared/shared.types.enum.js";
 import { errorHandler } from "../../utils/errorHandler.util.js";
 import {
   generateAccessToken,
@@ -18,6 +19,7 @@ import {
   getFreePlanId,
 } from "../subscription/Subscription.assign.js";
 import { node_env } from "@/env/env.import.js";
+import { sendOTPToEmail } from "./otp.utils.js";
 
 // redis keys
 
@@ -72,24 +74,10 @@ export const sendOTP = async (
       );
     }
 
-    const otp = generateOTP();
-
-    console.log("otp : ", otp);
-
-    await redisClient.setEx(`${OTP_PREFIX}${email}`, OTP_TTL, otp); // using redis set ex to store otp with ttl
-    await redisClient.incr(`${RETRY_PREFIX}${email}`); // using redis incr to increment the retry count
-    await redisClient.expire(`${RETRY_PREFIX}${email}`, RETRY_TTL); // using redis expire to set the ttl for the retry count
-
-    await sendEmail({
-      to: email,
-      type: "otp",
-      payload: { otp, username: user.username },
-    });
-
-    // console.log("send : ", send);
+    await sendOTPToEmail(email, user.username);
 
     return successHandler(res, 200, true, "OTP sent to your email.", {
-      ...(node_env === "development" && { otp }),
+      ...(node_env === "development" && { otp: await redisClient.get(`${OTP_PREFIX}${email}`) }),
     });
   } catch (error) {
     console.log("error to send otp : ,", error);
@@ -249,8 +237,7 @@ export const resendOTP = async (
     }
 
     if (user.isVerified) {
-      successHandler(res, 400, false, "Email is already verified.", {});
-      return;
+      return successHandler(res, 400, false, "Email is already verified.", {});
     }
 
     const retries = await redisClient.get(`${RETRY_PREFIX}${email}`);
@@ -267,27 +254,13 @@ export const resendOTP = async (
       );
     }
 
-    const otp = generateOTP();
+    await sendOTPToEmail(email, user.username);
 
-    console.log("otp : ", otp);
-
-    await redisClient.setEx(`${OTP_PREFIX}${email}`, OTP_TTL, otp);
-    await redisClient.incr(`${RETRY_PREFIX}${email}`);
-    await redisClient.expire(`${RETRY_PREFIX}${email}`, RETRY_TTL);
-
-    const resend = await sendEmail({
-      to: email,
-      type: "otp",
-      payload: { otp, username: user.username },
-    });
-
-    console.log("resend : ", resend);
-
-    successHandler(res, 200, true, "OTP sent to your email.", {
-      ...(node_env === "development" && { otp }),
+    return successHandler(res, 200, true, "OTP sent to your email.", {
+      ...(node_env === "development" && { otp: await redisClient.get(`${OTP_PREFIX}${email}`) }),
     });
   } catch (error) {
     console.error("error in the resend otp :", error);
-    next();
+    next(error);
   }
 };

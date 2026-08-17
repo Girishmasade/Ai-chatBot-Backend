@@ -13,8 +13,8 @@ import { credit } from "../token/tokenTransaction/tokenTransaction.controller.js
 import { TransactionType, TransactionSource } from "../token/tokenTransaction/tokenTransaction.types.js";
 import type { AuthUser } from "../auth/auth.payload.js";
 import { AuthModel } from "../auth/auth.models.js";
-import { sendEmail } from "@/services/mailer.utils.js";
-import { UserSubscriptionStatus } from "@/shared/shared.types.enum.js";
+import { emailQueue } from "@/redis/scheduler/queue.registry.js";
+import { UserSubscriptionStatus, JobName } from "@/shared/shared.types.enum.js";
 import { createOrderSchema, verifyPaymentSchema } from "./payment.validation.js";
 
 const RAZORPAY_API_SECRET_KEY = process.env.RAZORPAY_API_SECRET_KEY as string;
@@ -77,7 +77,7 @@ async function fulfillOrder(transaction: IPaymentTransaction) {
     if (user && user.email) {
       const itemName = purchasedItemDetails?.name || (transaction.itemType === PaymentItemType.SUBSCRIPTION ? "VIP Subscription Plan" : "Token Package");
       const tokensAllotted = purchasedItemDetails?.tokens || purchasedItemDetails?.tokenAmount || 0;
-      await sendEmail({
+      await emailQueue.add(JobName.SEND_EMAIL, {
         to: user.email,
         type: "invoice",
         payload: {

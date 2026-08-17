@@ -2,7 +2,8 @@
 
 import crypto from "crypto";
 import redisClient from "../../config/redis.config.js";
-import { sendEmail } from "../../services/mailer.utils.js";
+import { emailQueue } from "../../redis/scheduler/queue.registry.js";
+import { JobName } from "../../shared/shared.types.enum.js";
 
 const OTP_PREFIX   = "otp:";
 const OTP_TTL      = 200;
@@ -22,7 +23,7 @@ export const sendOTPToEmail = async (
   await redisClient.incr(`${RETRY_PREFIX}${email}`);
   await redisClient.expire(`${RETRY_PREFIX}${email}`, RETRY_TTL);
 
-  await sendEmail({
+  await emailQueue.add(JobName.SEND_EMAIL, {
     to: email,
     type: "otp",
     payload: { otp, username },

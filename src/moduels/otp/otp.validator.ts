@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 export const sendOTPSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  body: z.object({
+    email: z.string().email("Invalid email address"),
+  }),
 });
 
 export const verifyOTPSchema = z.object({
@@ -11,5 +13,5 @@ export const verifyOTPSchema = z.object({
   }),
 });
 
-export type SendOTPInput = z.infer<typeof sendOTPSchema>
+export type SendOTPInput = z.infer<typeof sendOTPSchema>["body"];
 export type VerifyOTPInput = z.infer<typeof verifyOTPSchema>["body"];
