@@ -13,6 +13,8 @@ import { allowedCorsType } from "./config/cors.config.js";
 import { startWorkers, shutdownWorkers } from "./redis/worker/index.js";
 import { registerRepeatableJobs, closeAllQueues } from "./redis/scheduler/index.js";
 import dotenv from "dotenv";
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
 dotenv.config();
 
 const PORT = Number(process.env.PORT) || 5500;
