@@ -5,12 +5,15 @@ import { SMTP_EMAIL, SMTP_PASSWORD } from "../env/env.import.js";
 
 const isProd = process.env.NODE_ENV === "production";
 
-// ── Transporter (Gmail SMTP) ─────────────────────
+// ── Transporter (Gmail SMTP) ─────────────overload matches this call.
+  // The last overload gave the following error.
+  //   Object literal may only specify known properties, and 'host' does not exist in type 'TransportOptions | Transport<unknown, TransportOptions>'.────────
 
 export const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
   secure: true, // Use SSL/TLS to avoid Render port blocking
+  family: 4, // Force IPv4 to avoid ENETUNREACH for IPv6
   auth: {
     user: SMTP_EMAIL,
     pass: SMTP_PASSWORD, // Make sure to use an App Password if using Gmail
@@ -18,7 +21,8 @@ export const transporter = nodemailer.createTransport({
   connectionTimeout: 10000,
   greetingTimeout: 10000,
   socketTimeout: 10000,
-});
+} as any);
+
 
 // ── Types ──────────────────────────────────────────────────
 

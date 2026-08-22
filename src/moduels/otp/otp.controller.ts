@@ -227,17 +227,13 @@ export const resendOTP = async (
     const { email } = req.body as SendOTPInput;
 
     if (!email) {
-      return successHandler(res, 400, false, "Email is required", {});
+      return errorHandler(res, 400, false, "Email is required", {});
     }
 
     const user = await AuthModel.findOne({ email });
 
     if (!user) {
-      return successHandler(res, 404, false, "User not found", {});
-    }
-
-    if (user.isVerified) {
-      return successHandler(res, 400, false, "Email is already verified.", {});
+      return errorHandler(res, 404, false, "User not found", {});
     }
 
     const retries = await redisClient.get(`${RETRY_PREFIX}${email}`);
@@ -245,7 +241,7 @@ export const resendOTP = async (
     console.log("retries : ", retries);
 
     if (retries && parseInt(retries) >= MAX_RETRIES) {
-      return successHandler(
+      return errorHandler(
         res,
         429,
         false,
