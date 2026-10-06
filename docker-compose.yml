@@ -1,0 +1,68 @@
+# ==========================================
+# Full-Stack Docker Compose Orchestration
+# ==========================================
+
+services:
+  # ── Redis Cache & BullMQ Queue Broker ───
+  redis:
+    image: redis:7-alpine
+    container_name: ai-chatbot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - chatbot-network
+
+  # ── Backend Node.js API & Workers ───────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-chatbot-backend
+    restart: unless-stopped
+    ports:
+      - "5500:5500"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=5500
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - chatbot-network
+
+  # ── Frontend React + Vite SPA ───────────
+  frontend:
+    build:
+      context: ../client
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URI: http://localhost:5500
+        VITE_APP_NAME: "AI ChatBot"
+    container_name: ai-chatbot-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - chatbot-network
+
+networks:
+  chatbot-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local

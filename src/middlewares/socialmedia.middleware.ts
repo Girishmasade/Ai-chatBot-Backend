@@ -48,6 +48,8 @@ export const socialMediaMiddleware = async (
       role: user.role,
       email: user.email,
       username: user.username,
+      avatar: user.avatar || "",
+      isVerified: Boolean(user.isVerified),
       googleId: user.googleId,
       githubId: user.githubId,
       facebookId: user.facebookId,

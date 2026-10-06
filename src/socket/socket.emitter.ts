@@ -166,3 +166,40 @@ export function emitAdminLog(log: import("./socket.types.js").SocketAuditLog): v
 export function emitAdminEntityUpdate(payload: import("./socket.types.js").SocketAdminUpdatePayload): void {
   emitToAll("admin:entity_update", payload);
 }
+
+// AI Job Queue helpers
+
+/**
+ * Emit AI job progress update to the requesting user.
+ */
+export function emitAIJobProgress(
+  userId: string,
+  data: {
+    jobId: string;
+    requestId: string;
+    service: string;
+    status: string;
+    progress?: number;
+    message?: string;
+  },
+): void {
+  emitToUser(userId, "ai:job_progress", data);
+}
+
+/**
+ * Emit AI job completion update to the requesting user.
+ */
+export function emitAIJobCompleted(
+  userId: string,
+  data: {
+    jobId: string;
+    requestId: string;
+    service: string;
+    success: boolean;
+    result?: any;
+    error?: string;
+  },
+): void {
+  emitToUser(userId, "ai:job_completed", data);
+}
+

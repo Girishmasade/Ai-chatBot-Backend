@@ -162,7 +162,7 @@ export const activeTokenPackage = AsyncHandler(async (req, res, next) => {
         200,
         true,
         "Token packages fetched successfully (cached)",
-        { cache },
+        { packages: cache },
       );
     }
 

@@ -5,6 +5,7 @@ import { tokenExpiryWorker } from "@/redis/worker/tokenExpiry.worker.js";
 import { auditArchivalWorker } from "@/redis/worker/auditArchival.worker.js";
 import { analyticsAggregationWorker } from "@/redis/worker/analyticsAggregation.worker.js";
 import { webhookRetryWorker } from "@/redis/worker/webhookRetry.worker.js";
+import { aiGenerationWorker } from "@/redis/worker/aiGeneration.worker.js";
 
 /**
  * Importing each *.worker.ts module above already instantiates its Worker
@@ -20,6 +21,7 @@ const allWorkers: Worker[] = [
   auditArchivalWorker,
   analyticsAggregationWorker,
   webhookRetryWorker,
+  aiGenerationWorker,
 ];
 
 export function startWorkers(): void {

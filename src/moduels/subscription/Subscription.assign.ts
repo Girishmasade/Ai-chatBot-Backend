@@ -127,7 +127,14 @@ export async function assignPlanToUser(
 export async function getFreePlanId(
   session?: mongoose.ClientSession,
 ): Promise<string> {
-  const query = SubscriptionPlanModel.findOne({ name: "Free", isActive: true });
+  const query = SubscriptionPlanModel.findOne({
+    $or: [
+      { name: { $regex: /^free/i } },
+      { plan: SubscriptionPlanType.FREE },
+      { price: 0 },
+    ],
+    isActive: true,
+  }).sort({ tokens: -1 });
   let freePlan = session ? await query.session(session) : await query;
 
   if (!freePlan) {

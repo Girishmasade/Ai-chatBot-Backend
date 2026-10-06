@@ -21,7 +21,11 @@ import { ServiceConfigModel } from "../service-config/service-config.model.js";
 import { AIService } from "../service-config/service-config.types.js";
 import { SystemModelModel } from "../admin/systemModel.model.js";
 import { UserSubscriptionModel } from "../subscription/userSubscription.model.js";
-import { UserSubscriptionStatus } from "@/shared/shared.types.enum.js";
+import { UserSubscriptionStatus, JobName, Role } from "@/shared/shared.types.enum.js";
+import {
+  aiGenerationQueue,
+  aiGenerationQueueEvents,
+} from "@/redis/scheduler/queue.registry.js";
 import TokenWalletModel from "../token/tokenWallet/tokenWallet.model.js";
 import { TokenTransaction } from "../token/tokenTransaction/tokenTransaction.model.js";
 import {
@@ -356,350 +360,67 @@ export const executeAIRequest = AsyncHandler(async (req, res, next) => {
       );
     }
 
-    // ── Step 7: Mark PROCESSING ───────────────────────────────────────────────
+    // ── Step 7: Enqueue into BullMQ AI Generation Queue ───────────────────────
+    // Protects upstream AI providers and database from concurrency surges (e.g. 1000+ users)
+    const userRole = (req.user as any)?.role;
+    const isPriorityUser = userRole === Role.SUPER_ADMIN || userRole === Role.ADMIN;
 
-    await AIRequestModel.findByIdAndUpdate(aiRequest._id, {
-      status: AIRequestStatus.PROCESSING,
-    });
-
-    // ── Step 7.5: Apply Anti-Hallucination Prompt Enhancement ────────────────
-    const category = mapAIServiceToCategory(service);
-    const antiHallucinationResult = buildAntiHallucinationPrompt({
-      prompt,
-      options: {
-        category,
-        aspectRatio: parameters?.aspectRatio,
-        style: parameters?.style,
-        quality: parameters?.quality,
-        outputFormat: parameters?.outputFormat,
-        strictMode: parameters?.strictMode ?? true,
-      },
-      systemPromptOverride: systemPrompt,
-    });
-
-    const activePrompt = parameters?.disableAntiHallucination
-      ? prompt
-      : antiHallucinationResult.enhancedPrompt;
-    const activeSystemPrompt = parameters?.disableAntiHallucination
-      ? systemPrompt
-      : antiHallucinationResult.systemPrompt;
-
-    // ── Step 8: Execute Provider Call with Failover ───────────────────────────
-
-    let providerResponse: any = null;
-    let usedProvider: any     = null;
-    let usedModel             = resolvedModel;
-    let attemptNumber         = 0;
-
-    for (const providerConfig of enabledProviders) {
-      attemptNumber++;
-
-      const currentModel =
-        attemptNumber === 1
-          ? (model ?? providerConfig.model)
-          : providerConfig.model;
-
-      console.log(
-        `[AIRequest] Attempt ${attemptNumber} — provider: ${providerConfig.provider}, model: ${currentModel}`,
-      );
-
-      const result = await executeProviderRequest(
-        providerConfig.provider,
-        "",
-        {
-          model:               currentModel,
-          prompt:              activePrompt,
-          systemPrompt:        activeSystemPrompt,
-          conversationHistory,
-          parameters: {
-            ...parameters,
-            imageUrl: parameters?.imageUrl,
-            negativePrompt: antiHallucinationResult.negativePrompt,
-          },
-          maxTokens:   providerConfig.maxTokens   ?? parameters?.maxTokens,
-          temperature: providerConfig.temperature ?? parameters?.temperature,
-        },
+    const job = await aiGenerationQueue.add(
+      JobName.GENERATE_AI_RESPONSE,
+      {
+        requestId: aiRequest._id.toString(),
+        userId,
+        userRole,
+        userEmail: (req.user as any)?.email,
+        userUsername: (req.user as any)?.username,
         service,
+        prompt,
+        systemPrompt,
+        conversationHistory,
+        model,
+        resolvedModel,
+        priority,
+        parameters,
+        metadata,
+        enabledProviders,
+        tokensPerUnit,
+        estimatedTokens,
+        estimatedCost,
+        ipAddress,
+      },
+      {
+        priority: isPriorityUser ? 1 : priority === "HIGH" ? 2 : 5,
+        attempts: 2,
+        backoff: { type: "exponential", delay: 2000 },
+      },
+    );
+
+    console.log(
+      `[AIRequest] Enqueued job ${job.id} for request ${aiRequest._id} (priority: ${isPriorityUser ? 1 : 5})`,
+    );
+
+    // ── Step 8: Await Worker Completion via QueueEvents ───────────────────────
+    // QueueEvents listens via Redis Pub/Sub and returns the exact worker result
+    try {
+      const result = await job.waitUntilFinished(aiGenerationQueueEvents, 90000);
+
+      return successHandler(
+        res,
+        200,
+        true,
+        "AI request completed successfully.",
+        result,
       );
-
-      if (result.success) {
-        providerResponse = result;
-        usedProvider     = providerConfig;
-        usedModel        = currentModel;
-        break;
-      }
-
-      console.warn(
-        `[AIRequest] Provider ${providerConfig.provider} failed on attempt ${attemptNumber}: ${result.error?.message}`,
-      );
-    }
-
-    // ── Step 9: All Providers Failed → Release Reserve ────────────────────────
-
-    if (!providerResponse?.success) {
-      let releasedSuccess = false;
-      if (dbSession) {
-        try {
-          await dbSession.withTransaction(async () => {
-            const walletRestore = await TokenWalletModel.findOne({ userId }).session(dbSession);
-            if (!walletRestore) return;
-
-            const balanceBefore    = walletRestore.balance;
-            walletRestore.balance += estimatedCost;
-            await walletRestore.save({ session: dbSession });
-
-            await TokenTransaction.create(
-              [{
-                userId,
-                type:          TransactionType.REVERSAL,
-                source:        TransactionSource.SYSTEM,
-                status:        TransactionStatus.COMPLETED,
-                amount:        estimatedCost,
-                balanceBefore,
-                balanceAfter:  walletRestore.balance,
-                aiRequestId:   aiRequest._id,
-                metadata: {
-                  service,
-                  reason: "ALL_PROVIDERS_FAILED",
-                },
-              }],
-              { session: dbSession },
-            );
-          });
-          releasedSuccess = true;
-        } catch (releaseErr) {
-          console.warn("[AIRequest] Transaction release fallback:", releaseErr);
-        }
-      }
-
-      if (!releasedSuccess) {
-        const walletRestore = await TokenWalletModel.findOne({ userId });
-        if (walletRestore) {
-          const balanceBefore = walletRestore.balance;
-          walletRestore.balance += estimatedCost;
-          await walletRestore.save();
-          await TokenTransaction.create({
-            userId,
-            type: TransactionType.REVERSAL,
-            source: TransactionSource.SYSTEM,
-            status: TransactionStatus.COMPLETED,
-            amount: estimatedCost,
-            balanceBefore,
-            balanceAfter: walletRestore.balance,
-            aiRequestId: aiRequest._id,
-            metadata: { service, reason: "ALL_PROVIDERS_FAILED" },
-          });
-        }
-      }
-
-      if (dbSession) await dbSession.endSession().catch(() => {});
-
-      await AIRequestModel.findByIdAndUpdate(aiRequest._id, {
-        status:       AIRequestStatus.FAILED,
-        provider:     usedProvider?.provider ?? enabledProviders[0]?.provider,
-        errorMessage: providerResponse?.error?.message ?? "All providers failed to respond.",
-      });
-
+    } catch (jobErr: any) {
+      console.error(`[AIRequest] Job ${job.id} failed:`, jobErr.message);
       return errorHandler(
-        res, 503, false,
-        "AI service is temporarily unavailable. Your tokens have been refunded. Please try again.",
+        res,
+        503,
+        false,
+        jobErr.message || "AI service request failed.",
         {},
       );
     }
-
-    // ── Step 10: Reconcile Actual Token Cost ──────────────────────────────────
-
-    const actualTokens = providerResponse.usage?.totalTokens || estimatedTokens;
-    const actualCost   = Math.ceil(actualTokens * tokensPerUnit);
-    const delta        = estimatedCost - actualCost; // positive = overpaid
-
-    let reconciledSuccess = false;
-    if (dbSession) {
-      try {
-        await dbSession.withTransaction(async () => {
-          const walletFinal = await TokenWalletModel.findOne({ userId }).session(dbSession);
-          if (!walletFinal) throw new Error("Wallet missing during reconciliation");
-
-          const balanceBefore = walletFinal.balance;
-
-          if (delta > 0) {
-            walletFinal.balance      += delta;
-            walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-            await walletFinal.save({ session: dbSession });
-
-            await TokenTransaction.create(
-              [{
-                userId,
-                type:          TransactionType.REVERSAL,
-                source:        TransactionSource.SYSTEM,
-                status:        TransactionStatus.COMPLETED,
-                amount:        delta,
-                balanceBefore,
-                balanceAfter:  walletFinal.balance,
-                aiRequestId:   aiRequest._id,
-                metadata:      { estimatedCost, actualCost, delta, reconcileReason: "OVERPAID" },
-              }],
-              { session: dbSession },
-            );
-          } else if (delta < 0) {
-            const shortfall = Math.abs(delta);
-            if (walletFinal.balance >= shortfall) {
-              walletFinal.balance      -= shortfall;
-              walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-              await walletFinal.save({ session: dbSession });
-
-              await TokenTransaction.create(
-                [{
-                  userId,
-                  type:          TransactionType.CONSUMPTION,
-                  source:        TransactionSource.AI_REQUEST,
-                  status:        TransactionStatus.COMPLETED,
-                  amount:        shortfall,
-                  balanceBefore,
-                  balanceAfter:  walletFinal.balance,
-                  aiRequestId:   aiRequest._id,
-                  metadata:      { estimatedCost, actualCost, shortfall, reconcileReason: "UNDERPAID" },
-                }],
-                { session: dbSession },
-              );
-            } else {
-              walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-              await walletFinal.save({ session: dbSession });
-            }
-          } else {
-            walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-            await walletFinal.save({ session: dbSession });
-          }
-        });
-        reconciledSuccess = true;
-      } catch (recErr) {
-        console.warn("[AIRequest] Transaction reconciliation fallback:", recErr);
-      }
-    }
-
-    if (!reconciledSuccess) {
-      const walletFinal = await TokenWalletModel.findOne({ userId });
-      if (walletFinal) {
-        if (delta > 0) {
-          walletFinal.balance += delta;
-        } else if (delta < 0) {
-          const shortfall = Math.abs(delta);
-          if (walletFinal.balance >= shortfall) walletFinal.balance -= shortfall;
-        }
-        walletFinal.totalConsumed = (walletFinal.totalConsumed ?? 0) + actualCost;
-        await walletFinal.save();
-      }
-    }
-
-    if (dbSession) await dbSession.endSession().catch(() => {});
-
-    // ── Step 10.5: Store Generated Media on Cloudinary & Save Asset ────────────
-    if (providerResponse.imageUrls && providerResponse.imageUrls.length > 0) {
-      const isVideo = service === "video_gen";
-      const uploadedCloudinaryUrl = await uploadMediaToCloudinary(
-        providerResponse.imageUrls[0],
-        "ai_assets",
-        isVideo ? "video" : "auto"
-      );
-      providerResponse.imageUrls[0] = uploadedCloudinaryUrl;
-
-      // Save asset record for user's creative vault
-      await AIAssetModel.create({
-        user: userId,
-        type: isVideo ? "video" : "image",
-        title: prompt.substring(0, 40) + "...",
-        prompt,
-        content: uploadedCloudinaryUrl,
-        model: usedModel,
-      }).catch((assetErr) => console.warn("Failed to create AIAsset record in executeAIRequest:", assetErr));
-    }
-
-    // ── Step 11: Mark COMPLETED ───────────────────────────────────────────────
-
-    await AIRequestModel.findByIdAndUpdate(
-      aiRequest._id,
-      {
-        status:    AIRequestStatus.COMPLETED,
-        provider:  usedProvider!.provider,
-        model:     usedModel,
-        response:  providerResponse.content,
-        tokenCost: actualCost,
-        latencyMs: providerResponse.latencyMs,
-        metadata: {
-          ...metadata,
-          providerRequestId: providerResponse.providerRequestId,
-          attemptNumber,
-          promptTokens:      providerResponse.usage.promptTokens,
-          completionTokens:  providerResponse.usage.completionTokens,
-          totalTokens:       providerResponse.usage.totalTokens,
-          tokensCharged:     actualCost,
-          imageUrls:         providerResponse.imageUrls ?? [],
-        },
-      },
-      { returnDocument: "after" },
-    ).lean();
-
-    // Notify User & Admin Real-Time of Token Deduction & Service Usage
-    try {
-      const { emitAdminEntityUpdate, emitWalletUpdate } = await import("@/socket/socket.emitter.js");
-      const { AuditLogModel } = await import("../admin/auditLog.model.js");
-
-      const walletUpdated = await TokenWalletModel.findOne({ userId });
-      if (walletUpdated) {
-        emitWalletUpdate(userId, {
-          balance: walletUpdated.balance,
-          totalConsumed: walletUpdated.totalConsumed,
-          reason: "DEDUCTION"
-        });
-      }
-
-      const userEmail = (req.user as any)?.email || "User";
-      const userUsername = (req.user as any)?.username || "User";
-
-      await AuditLogModel.create({
-        action: "AI Model Utilized",
-        operator: userUsername,
-        details: `User ${userEmail} used service '${service}' with model '${usedModel}' (${actualCost} cr)`,
-        level: "info",
-      });
-
-      emitAdminEntityUpdate({
-        entityType: "user",
-        action: "updated",
-        data: {
-          id: userId,
-          serviceUsed: service,
-          modelUsed: usedModel,
-        },
-      });
-    } catch (notifyErr) {
-      console.error("AI usage notification error:", notifyErr);
-    }
-
-    console.log(
-      `[AIRequest] COMPLETED ${aiRequest._id} — provider: ${usedProvider!.provider}, ` +
-      `tokens: ${actualTokens}, cost: ${actualCost}, latency: ${providerResponse.latencyMs}ms`,
-    );
-
-    // ── Step 12: Invalidate cache entry and respond ───────────────────────────
-
-    await aiRequestCache.invalidate(String(aiRequest._id));
-
-    return successHandler(res, 200, true, "AI request completed successfully.", {
-      requestId:  aiRequest._id,
-      service,
-      response:   providerResponse.content,
-      imageUrls:  providerResponse.imageUrls ?? [],
-      provider:   usedProvider!.provider,
-      model:      usedModel,
-      tokenUsage: {
-        promptTokens:     providerResponse.usage.promptTokens,
-        completionTokens: providerResponse.usage.completionTokens,
-        totalTokens:      providerResponse.usage.totalTokens,
-        tokensCharged:    actualCost,
-      },
-      latencyMs: providerResponse.latencyMs,
-    });
   } catch (error) {
     console.error("❌ Error in executeAIRequest:", error);
     next(error);
@@ -1228,3 +949,14 @@ export const generateImageHandler = AsyncHandler(async (req, res, next) => {
     next(error);
   }
 });
+
+// USER / ADMIN — Get AI Generation Queue Real-Time Load & Status
+// GET /api/v1/ai/queue-status
+export const getAIQueueStatus = AsyncHandler(async (_req, res) => {
+  const counts = await aiGenerationQueue.getJobCounts();
+  return successHandler(res, 200, true, "AI generation queue status fetched.", {
+    queue: "ai-generation",
+    counts,
+  });
+});
+

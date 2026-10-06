@@ -12,6 +12,7 @@ import {
   generateAccessToken,
   generateRefreshToken,
   setTokenCookies,
+  updateAccessTokenInDb,
 } from "@/utils/token.utils.js";
 import { initWallet } from "../token/tokenWallet/tokenWallet.controller.js";
 import {
@@ -164,9 +165,10 @@ export const verifyOTP = async (
     await redisClient.del(`${RETRY_PREFIX}${email}`);
 
     const accessToken = await generateAccessToken(user);
-    const refreshToken = await generateRefreshToken(user._id.toString());
+    const refreshToken = await generateRefreshToken(user._id.toString(), req);
+    await updateAccessTokenInDb(refreshToken, accessToken);
 
-    setTokenCookies(res, refreshToken);
+    setTokenCookies(res, refreshToken, req);
 
     // Notify Admin Real-Time & Log Audit
     try {
@@ -202,6 +204,7 @@ export const verifyOTP = async (
 
     return successHandler(res, 200, true, "Email verified successfully.", {
       accessToken,
+      refreshToken,
       user: {
         id: user._id.toString(),
         username: user.username,

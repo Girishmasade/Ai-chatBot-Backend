@@ -136,6 +136,7 @@ export enum BullMQQueue {
   AUDIT_ARCHIVAL = "audit-archival",
   ANALYTICS_AGGREGATION = "analytics-aggregation",
   WEBHOOK_RETRY = "webhook-retry",
+  AI_GENERATION = "ai-generation",
 }
 
 export enum JobName {
@@ -148,4 +149,5 @@ export enum JobName {
   // BullMQQueue.WEBHOOK_RETRY existed with no corresponding job names.
   PROCESS_TOKEN_EXPIRY = "process-token-expiry",
   RETRY_WEBHOOK_DELIVERY = "retry-webhook-delivery",
+  GENERATE_AI_RESPONSE = "generate-ai-response",
 }

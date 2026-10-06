@@ -91,6 +91,24 @@ export interface ServerToClientEvents {
   // Admin Dashboard
   "admin:log_stream": (log: SocketAuditLog) => void;
   "admin:entity_update": (payload: SocketAdminUpdatePayload) => void;
+
+  // AI Queue Real-Time Events
+  "ai:job_progress": (data: {
+    jobId: string;
+    requestId: string;
+    service: string;
+    status: string;
+    progress?: number;
+    message?: string;
+  }) => void;
+  "ai:job_completed": (data: {
+    jobId: string;
+    requestId: string;
+    service: string;
+    success: boolean;
+    result?: any;
+    error?: string;
+  }) => void;
 }
 
 // Client → Server events

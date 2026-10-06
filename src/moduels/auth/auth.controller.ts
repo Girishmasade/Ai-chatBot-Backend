@@ -1,20 +1,23 @@
 import type { NextFunction, Request, Response } from "express";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 import { AuthModel } from "./auth.models.js";
 import redisClient from "../../config/redis.config.js";
 import { successHandler } from "../../utils/successHandler.util.js";
 import type { LoginInput, RegisterInput } from "./auth.types.js";
 import { errorHandler } from "../../utils/errorHandler.util.js";
 import { sendOTPToEmail } from "../otp/otp.utils.js";
-import { clearTokenCookies, deleteRefreshToken, validateRefreshToken } from "@/utils/token.utils.js";
+import {
+  clearTokenCookies,
+  deleteRefreshToken,
+  deleteRefreshTokenFromAllDevices,
+  validateRefreshToken,
+} from "@/utils/token.utils.js";
+import { silentRefresh } from "@/middlewares/auth.middleware.js";
 
 const OTP_PREFIX = "otp:";
-const OTP_TTL = 200;
 const RETRY_PREFIX = "otp:retries:";
-const RETRY_TTL = 200;
-const MAX_RETRIES  = 5;
-
-const generateOTP = (): string => crypto.randomInt(100000, 999999).toString();
+const MAX_RETRIES = 5;
 
 // ── Register
 
@@ -69,7 +72,7 @@ export const loginAccount = async (
   next: NextFunction,
 ) => {
   try {
-    const { email } = req.body  as LoginInput;
+    const { email } = req.body as LoginInput;
 
     if (!email) {
       return errorHandler(res, 400, false, "Email is required", {});
@@ -78,7 +81,7 @@ export const loginAccount = async (
     const isUserExists = await AuthModel.findOne({ email });
 
     if (!isUserExists) {
-    return errorHandler(res, 404, false, "User not found", {});
+      return errorHandler(res, 404, false, "User not found", {});
     }
 
     if (!isUserExists?.isVerified) {
@@ -86,9 +89,9 @@ export const loginAccount = async (
     }
 
     // track login attempts
-     const retries = await redisClient.get(`${RETRY_PREFIX}${email}`);
+    const retries = await redisClient.get(`${RETRY_PREFIX}${email}`);
     if (retries && parseInt(retries) >= MAX_RETRIES) {
-      return errorHandler(res, 429, false, "Too many attempts. Please try again later.", {}); // ✅ 429
+      return errorHandler(res, 429, false, "Too many attempts. Please try again later.", {});
     }
 
     await sendOTPToEmail(email, isUserExists.username);
@@ -96,6 +99,44 @@ export const loginAccount = async (
     successHandler(res, 200, true, "OTP sent to your email.", {});
   } catch (error) {
     console.log("error to login Account :", error);
+    next(error);
+  }
+};
+
+// Refresh Token: generates fresh access & refresh tokens from cookie or DB
+export const refreshTokenAccount = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    let fallbackUserId: string | undefined;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const decoded = jwt.decode(authHeader.split(" ")[1]) as any;
+        fallbackUserId = decoded?.userId;
+      } catch {}
+    }
+
+    const result = await silentRefresh(req, res, fallbackUserId);
+
+    if (!result) {
+      return errorHandler(res, 401, false, "Session expired or invalid refresh token. Please login again.", {});
+    }
+
+    return successHandler(res, 200, true, "Token refreshed successfully.", {
+      accessToken: result.newAccessToken,
+      user: {
+        id: result.payload.userId,
+        username: result.payload.username,
+        email: result.payload.email,
+        role: result.payload.role,
+        avatar: result.payload.avatar,
+      },
+    });
+  } catch (error) {
+    console.error("error in refreshTokenAccount:", error);
     next(error);
   }
 };
@@ -108,17 +149,22 @@ export const logoutAccount = async (
   next: NextFunction,
 ) => {
   try {
+    const token =
+      req.cookies?.refreshToken ||
+      (req.headers["x-refresh-token"] as string) ||
+      req.body?.refreshToken;
 
-    const token = req.cookies.refreshToken
-
-    if(token){
-      await deleteRefreshToken(token)
+    if (token) {
+      await deleteRefreshToken(token);
     }
 
-    clearTokenCookies(res)
+    if (req.user?.id) {
+      await deleteRefreshTokenFromAllDevices(req.user.id);
+    }
 
-        return successHandler(res, 200, true, "Logged out successfully.", {});
+    clearTokenCookies(res, req);
 
+    return successHandler(res, 200, true, "Logged out successfully.", {});
   } catch (error) {
     console.log("error to logout Account :", error);
     next(error);
@@ -133,19 +179,23 @@ export const logoutAllDevices = async (
   next: NextFunction,
 ) => {
   try {
-    const token = req.cookies.refreshToken;
+    const token =
+      req.cookies?.refreshToken ||
+      (req.headers["x-refresh-token"] as string) ||
+      req.body?.refreshToken;
 
-    if (!token) {
-      return errorHandler(res, 401, false, "No refresh token provided", {});
+    let targetUserId = req.user?.id;
+
+    if (!targetUserId && token) {
+      targetUserId = (await validateRefreshToken(token)) || undefined;
     }
 
-    const userId = await validateRefreshToken(token);
-
-    if (!userId) {
-      return errorHandler(res, 401, false, "Invalid or expired session", {});
+    if (!targetUserId) {
+      return errorHandler(res, 401, false, "No valid session or refresh token provided", {});
     }
 
-    clearTokenCookies(res);
+    await deleteRefreshTokenFromAllDevices(targetUserId);
+    clearTokenCookies(res, req);
 
     return successHandler(res, 200, true, "Logged out from all devices.", {});
   } catch (error) {

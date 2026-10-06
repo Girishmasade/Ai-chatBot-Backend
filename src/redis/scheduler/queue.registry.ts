@@ -1,4 +1,4 @@
-import { Queue, type QueueOptions } from "bullmq";
+import { Queue, QueueEvents, type QueueOptions } from "bullmq";
 import { BullMQQueue } from "@/shared/shared.types.enum.js";
 import { bullmqConnection } from "@/redis/bullmq.connection.js";
 
@@ -37,6 +37,13 @@ export const emailQueue = createQueue(BullMQQueue.EMAIL);
 export const auditArchivalQueue = createQueue(BullMQQueue.AUDIT_ARCHIVAL);
 export const analyticsAggregationQueue = createQueue(BullMQQueue.ANALYTICS_AGGREGATION);
 export const webhookRetryQueue = createQueue(BullMQQueue.WEBHOOK_RETRY);
+export const aiGenerationQueue = createQueue(BullMQQueue.AI_GENERATION);
+
+// Dedicated QueueEvents instance for synchronously awaiting job completion
+// Uses duplicate() connection for Redis Pub/Sub subscriber listening.
+export const aiGenerationQueueEvents = new QueueEvents(BullMQQueue.AI_GENERATION, {
+  connection: bullmqConnection.duplicate(),
+});
 
 export const allQueues = [
   subscriptionRenewalQueue,
@@ -45,9 +52,14 @@ export const allQueues = [
   auditArchivalQueue,
   analyticsAggregationQueue,
   webhookRetryQueue,
+  aiGenerationQueue,
 ];
 
 /** Call on graceful shutdown (SIGTERM/SIGINT) so in-flight `queue.add()` calls flush. */
 export async function closeAllQueues(): Promise<void> {
-  await Promise.all(allQueues.map((q) => q.close()));
+  await Promise.all([
+    ...allQueues.map((q) => q.close()),
+    aiGenerationQueueEvents.close(),
+  ]);
 }
+

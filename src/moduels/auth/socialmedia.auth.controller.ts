@@ -4,6 +4,7 @@ import {
   generateAccessToken,
   generateRefreshToken,
   setTokenCookies,
+  updateAccessTokenInDb,
 } from "../../utils/token.utils.js";
 import { initWallet } from "../token/tokenWallet/tokenWallet.controller.js";
 import { assignPlanToUser, getFreePlanId } from "../subscription/Subscription.assign.js";
@@ -34,10 +35,11 @@ const oauthCallback =
         }
 
         const accessToken = await generateAccessToken(user);
-        const refreshToken = await generateRefreshToken(user._id.toString()) as string;
+        const refreshToken = (await generateRefreshToken(user._id.toString(), req)) as string;
+        await updateAccessTokenInDb(refreshToken, accessToken);
 
         // store refreshToken in HttpOnly cookie
-        setTokenCookies(res, refreshToken);
+        setTokenCookies(res, refreshToken, req);
 
         // We can pass accessToken via URL so frontend can easily capture it, or rely on silentRefresh.
         // I will pass it as a URL parameter to be safe.

@@ -23,11 +23,23 @@ import {
   deleteAIRequest,
   adminGetUsageStats,
   generateImageHandler,
+  getAIQueueStatus,
 } from "./aiRequest.controller.js";
 
 export const aiRequestRouter = Router();
 
 // ─── User routes (auth required) ─────────────────────────────────────────────
+
+/**
+ * @route   GET /api/v1/ai/queue-status
+ * @desc    Get real-time job counts of the BullMQ AI generation queue
+ * @access  Authenticated user
+ */
+aiRequestRouter.get(
+  "/queue-status",
+  authMiddleware,
+  getAIQueueStatus
+);
 
 aiRequestRouter.post(
   "/generate-image",
