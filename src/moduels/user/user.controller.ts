@@ -8,6 +8,8 @@ import {
   extractPublicId,
   uploadFile,
 } from "@/utils/cloudinary.util.js";
+import { UserSubscriptionModel } from "../subscription/userSubscription.model.js";
+import { UserSubscriptionStatus } from "@/shared/shared.types.enum.js";
 
 // get user Profile
 
@@ -31,7 +33,27 @@ export const getUserProfile = async (
       return errorHandler(res, 404, false, "user Not Found", {});
     }
 
-    return successHandler(res, 200, true, "Here are you're Details", { user });
+    const activeSub = await UserSubscriptionModel.findOne({
+      user: userId,
+      status: UserSubscriptionStatus.ACTIVE,
+    })
+      .populate("plan")
+      .sort({ createdAt: -1 });
+
+    const plan = activeSub?.plan as any;
+    const isPaid = Boolean(
+      plan &&
+        ((plan.price && plan.price > 0) ||
+          (plan.plan && plan.plan !== "FREE" && plan.price > 0)),
+    );
+
+    return successHandler(res, 200, true, "Here are you're Details", {
+      user,
+      subscription: activeSub || null,
+      plan: plan || null,
+      isPaid,
+      tier: isPaid ? "paid" : "free",
+    });
   } catch (error) {
     console.error("error in get user profile :", error);
     next(error);

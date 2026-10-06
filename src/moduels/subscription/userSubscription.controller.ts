@@ -94,7 +94,7 @@ export const getSubscription = AsyncHandler(async (req, res, next) => {
   try {
     const userId = (req.user as AuthUser).id;
 
-    const subscriptionId = req.params.planId as string;
+    const subscriptionId = (req.params.subscriptionId || req.params.planId) as string;
 
     if (!subscriptionId) {
       return errorHandler(res, 404, false, "Subscription Id is Required", {});
@@ -224,6 +224,82 @@ export const cancelSubscription = AsyncHandler(async (req, res, next) => {
     );
   } catch (error) {
     console.log("error to cancel the subscription plan", error);
+    next(error);
+  }
+});
+
+// get current user's active subscription & tier details
+export const getMySubscription = AsyncHandler(async (req, res, next) => {
+  try {
+    const userId = (req.user as AuthUser)?.id;
+
+    if (!userId) {
+      return errorHandler(res, 401, false, "User not authenticated", {});
+    }
+
+    const activeSub = await UserSubscriptionModel.findOne({
+      user: userId,
+      status: UserSubscriptionStatus.ACTIVE,
+    })
+      .populate("plan")
+      .sort({ createdAt: -1 });
+
+    if (!activeSub) {
+      return successHandler(res, 200, true, "No active subscription found", {
+        hasActiveSubscription: false,
+        isPaid: false,
+        tier: "free",
+        plan: null,
+        subscription: null,
+      });
+    }
+
+    // Check if subscription has expired
+    if (activeSub.endDate && new Date(activeSub.endDate) < new Date()) {
+      activeSub.status = UserSubscriptionStatus.EXPIRED;
+      await activeSub.save();
+      return successHandler(res, 200, true, "Subscription expired", {
+        hasActiveSubscription: false,
+        isPaid: false,
+        tier: "free",
+        plan: null,
+        subscription: activeSub,
+      });
+    }
+
+    const plan = activeSub.plan as any;
+    const isPaid = Boolean(
+      plan &&
+        ((plan.price && plan.price > 0) ||
+          (plan.plan && plan.plan !== "FREE" && plan.price > 0)),
+    );
+
+    return successHandler(
+      res,
+      200,
+      true,
+      "Active subscription fetched successfully",
+      {
+        hasActiveSubscription: true,
+        isPaid,
+        tier: isPaid ? "paid" : "free",
+        plan: plan
+          ? {
+              _id: plan._id,
+              name: plan.name,
+              plan: plan.plan,
+              price: plan.price,
+              currency: plan.currency,
+              tokens: plan.tokens,
+              durationInDays: plan.durationInDays,
+              services: plan.services,
+            }
+          : null,
+        subscription: activeSub,
+      },
+    );
+  } catch (error) {
+    console.error("error to get my subscription:", error);
     next(error);
   }
 });

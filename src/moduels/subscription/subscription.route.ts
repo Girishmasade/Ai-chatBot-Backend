@@ -3,7 +3,12 @@ import { Router } from "express";
 import { createSubscription, deleteSubscriptionForUser, getSubscriptionForUser, updateSubscriptionForUser } from "./subscription.controller.js";
 import { validate } from "@/middlewares/zod.middleware.js";
 import { cancelUserSubscription, createSub, updateSub } from "./subscription.validator.js";
-import { cancelSubscription, createUserSubscription, getSubscription } from "./userSubscription.controller.js";
+import {
+  cancelSubscription,
+  createUserSubscription,
+  getMySubscription,
+  getSubscription,
+} from "./userSubscription.controller.js";
 
 export const subscriptionRouter = Router();
 
@@ -43,6 +48,19 @@ subscriptionRouter.get(
   getSubscriptionForUser,
 );
 
+// ── Authenticated user active subscription & plan status ─────────────
+subscriptionRouter.get(
+  "/my-subscription",
+  authMiddleware,
+  getMySubscription,
+);
+
+subscriptionRouter.get(
+  "/get-my-subscription",
+  authMiddleware,
+  getMySubscription,
+);
+
 // user subscription
 
 subscriptionRouter.post(
@@ -63,3 +81,4 @@ subscriptionRouter.put(
   validate(cancelUserSubscription),
   cancelSubscription,
 );
+

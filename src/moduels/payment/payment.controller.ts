@@ -52,6 +52,10 @@ async function fulfillOrder(transaction: IPaymentTransaction) {
     }
 
     purchasedItemDetails = await SubscriptionPlanModel.findById(transaction.itemId);
+    await UserSubscriptionModel.updateMany(
+      { user: userId, status: UserSubscriptionStatus.ACTIVE, plan: transaction.itemId },
+      { $set: { paymentRef: transaction._id } }
+    );
   } else if (transaction.itemType === PaymentItemType.TOKEN_PACKAGE) {
     const pkg = await TokenPackage.findById(transaction.itemId);
     purchasedItemDetails = pkg;
@@ -135,10 +139,28 @@ async function fulfillOrder(transaction: IPaymentTransaction) {
         totalBonus: wallet.totalBonus,
         reason: "PURCHASE"
       });
+      if (transaction.itemType === PaymentItemType.TOKEN_PACKAGE) {
+        emitNotification(transaction.user.toString(), {
+          id: `purch-${Date.now()}`,
+          title: "Tokens Purchased Successfully! 🎉",
+          message: `Your payment was verified. Balance: ${wallet.balance} tokens`,
+          type: "success",
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
+
+    if (transaction.itemType === PaymentItemType.SUBSCRIPTION) {
+      const { emitSubscriptionUpdate } = await import("@/socket/socket.emitter.js");
+      emitSubscriptionUpdate(transaction.user.toString(), {
+        planName: purchasedItemDetails?.name || "VIP Plan",
+        status: "active",
+        tokensCredited: purchasedItemDetails?.tokens || 0,
+      });
       emitNotification(transaction.user.toString(), {
-        id: `purch-${Date.now()}`,
-        title: "Tokens Purchased Successfully! 🎉",
-        message: `Your payment was verified. Balance: ${wallet.balance} tokens`,
+        id: `sub-${Date.now()}`,
+        title: "Subscription Activated! 🎉",
+        message: `You are now subscribed to the ${purchasedItemDetails?.name || "VIP"} plan.`,
         type: "success",
         createdAt: new Date().toISOString()
       });
@@ -277,6 +299,8 @@ export const verifyPayment = AsyncHandler(async (req, res, next) => {
 
     return successHandler(res, 200, true, "Payment verified and order fulfilled successfully", {
       status: "SUCCESS",
+      itemType: transaction.itemType,
+      planId: transaction.itemType === PaymentItemType.SUBSCRIPTION ? transaction.itemId : undefined,
     });
   } catch (error) {
     console.error("error in verifyPayment:", error);
