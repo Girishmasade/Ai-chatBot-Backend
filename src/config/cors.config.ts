@@ -7,6 +7,6 @@ export const allowedCorsType = [
   "http://127.0.0.1:5174",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
-  "https://go-chatbot-ai.netlify.app",
-  "https://go-chatbot-ai.netlify.app/"
+  "https://thegochatai.netlify.app/",
+  "https://thegochatai.netlify.app"
 ];

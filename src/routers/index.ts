@@ -19,6 +19,8 @@ import PromptBuilderRoute from "@/moduels/prompt/promptbuilder.route.js";
 import { paymentRouter } from "@/moduels/payment/payment.route.js";
 import { menuRouter } from "@/moduels/admin/menu.route.js";
 import { chatHistoryRouter } from "@/moduels/chat/chatHistory.route.js";
+import { privacyPolicyRouter } from "@/moduels/privacy/privacyPolicy.routes.js";
+import { termsRouter } from "@/moduels/terms/termsandcondition.routes.js";
 
 // NOTE: notification.route.ts is intentionally NOT mounted — its controller
 // (notification.controller.ts) is all empty stub functions and the route
@@ -50,3 +52,7 @@ RouterFile.use("/rag", RagRouter)
 RouterFile.use("/prompt", PromptBuilderRoute)
 RouterFile.use("/admin/moderation", ModerationRouter)
 RouterFile.use("/payment", paymentRouter)
+RouterFile.use("/privacy", privacyPolicyRouter)
+RouterFile.use("/privacy-policy", privacyPolicyRouter)
+RouterFile.use("/terms", termsRouter)
+RouterFile.use("/terms-and-conditions", termsRouter)

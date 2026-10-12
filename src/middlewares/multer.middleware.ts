@@ -11,6 +11,18 @@ function cloudinaryStorage() {
 
       if (file.fieldname === "avatar") {
         folder = "avatars";
+      } else if (
+        file.fieldname === "termsImage" ||
+        file.fieldname.toLowerCase().includes("term")
+      ) {
+        folder = "terms";
+      } else if (
+        file.fieldname === "privacyImage" ||
+        file.fieldname.toLowerCase().includes("privacy")
+      ) {
+        folder = "privacy";
+      } else if (file.fieldname === "bannerImage") {
+        folder = req.baseUrl?.includes("term") ? "terms" : "privacy";
       } else if (file.mimetype.startsWith("video")) {
         folder = "videos";
       } else if (file.mimetype.startsWith("image")) {
@@ -48,10 +60,14 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: FileFilterCallback,
 ) => {
-  if (file.fieldname === "avatar") {
-    const allowed = ["image/jpeg", "image/png", "image/svg"];
-    if (!allowed.includes(file.mimetype)) {
-      return cb(new Error("Avatar must be an image"));
+  if (
+    file.fieldname === "avatar" ||
+    file.fieldname === "bannerImage" ||
+    file.fieldname === "privacyImage" ||
+    file.fieldname === "termsImage"
+  ) {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error(`${file.fieldname} must be an image file`));
     }
   }
 
@@ -61,9 +77,9 @@ const fileFilter = (
     }
   }
 
-  if (file.fieldname === "media") {
+  if (file.fieldname === "media" || file.fieldname === "image") {
     if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Media must be images"));
+      return cb(new Error("Image upload must be an image file"));
     }
   }
 
