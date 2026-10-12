@@ -16,6 +16,8 @@ export interface IBrandingConfig extends Document {
   description: string;
   twitterUrl: string;
   linkedinUrl: string;
+  privacyPolicyUrl: string;
+  termsUrl: string;
   seoTitle: string;
   seoDescription: string;
   seoKeywords: string;
@@ -38,6 +40,8 @@ const brandingSchema = new Schema<IBrandingConfig>(
     description: { type: String, default: "" },
     twitterUrl: { type: String, default: "" },
     linkedinUrl: { type: String, default: "" },
+    privacyPolicyUrl: { type: String, default: "/privacy" },
+    termsUrl: { type: String, default: "/terms" },
     seoTitle: { type: String, default: "" },
     seoDescription: { type: String, default: "" },
     seoKeywords: { type: String, default: "" },
